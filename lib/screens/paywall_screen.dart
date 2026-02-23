@@ -182,7 +182,7 @@ class PaywallScreen extends StatelessWidget {
                   Text('입금 계좌', style: TextStyle(color: Colors.white38, fontSize: 13)),
                   SizedBox(height: 8),
                   Text(
-                    '카카오뱅크 3333-00-0000000',
+                    '토스뱅크 1000-3013-4144',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
                   SizedBox(height: 4),
@@ -202,7 +202,7 @@ class PaywallScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text(
-                '입금 후 카카오톡 @얘진상 으로\n입금자명과 등록 전화번호를 보내주세요.\n확인 후 24시간 내 활성화됩니다.',
+                '⚠️ 입금자명을 업소명과 동일하게 해주세요.\n입금 확인 후 24시간 내 활성화됩니다.\n문의: hello@thebespoke.team',
                 style: TextStyle(color: Color(0xFFFFB84D), fontSize: 13),
                 textAlign: TextAlign.center,
               ),
@@ -212,7 +212,7 @@ class PaywallScreen extends StatelessWidget {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () {
-                  Clipboard.setData(const ClipboardData(text: '카카오뱅크 3333-00-0000000'));
+                  Clipboard.setData(const ClipboardData(text: '토스뱅크 1000-3013-4144'));
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: const Text('✅ 계좌번호 복사됨'),

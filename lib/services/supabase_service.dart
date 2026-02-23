@@ -63,6 +63,37 @@ class SupabaseService {
     await client.from('tags').delete().eq('id', tagId);
   }
 
+  /// 내 추천코드 가져오기
+  static Future<String?> getMyReferralCode(String shopId) async {
+    final response = await client
+        .from('shops')
+        .select('referral_code')
+        .eq('id', shopId)
+        .maybeSingle();
+    return response?['referral_code'];
+  }
+
+  /// 추천코드 적용
+  static Future<Map<String, dynamic>> applyReferral(String code, String shopId) async {
+    final response = await client.rpc('apply_referral', params: {
+      'p_code': code,
+      'p_new_shop_id': shopId,
+    });
+    if (response is Map) {
+      return Map<String, dynamic>.from(response);
+    }
+    return {'success': false, 'error': '알 수 없는 오류'};
+  }
+
+  /// 내 추천 현황
+  static Future<int> getReferralCount(String shopId) async {
+    final response = await client
+        .from('referrals')
+        .select('id')
+        .eq('referrer_shop_id', shopId);
+    return (response as List).length;
+  }
+
   /// 조회 로그 기록
   static Future<void> logLookup({
     required String shopId,

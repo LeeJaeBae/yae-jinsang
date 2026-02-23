@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/supabase_service.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -12,6 +13,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
   final _nameController = TextEditingController();
+  final _referralController = TextEditingController();
   bool _otpSent = false;
   bool _loading = false;
   String? _error;
@@ -107,6 +109,12 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       }
 
+      // 추천코드 적용
+      final referralCode = _referralController.text.trim();
+      if (referralCode.isNotEmpty && user != null) {
+        await SupabaseService.applyReferral(referralCode, user.id);
+      }
+
       setState(() => _loading = false);
       // 인증 완료 → main.dart에서 상태 감지
     } catch (e) {
@@ -168,6 +176,28 @@ class _AuthScreenState extends State<AuthScreen> {
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide.none,
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _referralController,
+                    style: const TextStyle(fontSize: 16),
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: InputDecoration(
+                      hintText: '추천코드 (선택)',
+                      hintStyle: const TextStyle(color: Colors.white24),
+                      prefixIcon: const Icon(Icons.card_giftcard, color: Colors.white38, size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFF1A1A1A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      suffixIcon: const Padding(
+                        padding: EdgeInsets.only(right: 12),
+                        child: Text('첫 달 50%', style: TextStyle(color: Color(0xFF34C759), fontSize: 12)),
+                      ),
+                      suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                     ),
                   ),
                   const SizedBox(height: 12),

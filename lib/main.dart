@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/paywall_screen.dart';
+import 'screens/referral_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -448,25 +449,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       child: const Text('🚨', style: TextStyle(fontSize: 28)),
                     ),
                     const SizedBox(width: 14),
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '얘진상',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5,
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '얘진상',
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                            ),
                           ),
-                        ),
-                        Text(
-                          '진상 손님 사전 차단 시스템',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.white38,
+                          Text(
+                            '진상 손님 사전 차단 시스템',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white38,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ReferralScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.card_giftcard, color: Color(0xFFFF6B6B)),
+                      tooltip: '추천하기',
                     ),
                   ],
                 ),

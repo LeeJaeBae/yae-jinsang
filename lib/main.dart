@@ -6,6 +6,7 @@ import 'services/supabase_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/paywall_screen.dart';
 import 'screens/referral_screen.dart';
+import 'screens/my_tags_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -141,11 +142,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     TagOption('블랙', '⛔', Color(0xFF000000)),
   ];
 
+  String get _shopId => Supabase.instance.client.auth.currentUser!.id;
+
   @override
   void initState() {
     super.initState();
     _checkScreeningStatus();
     _checkOverlayPermission();
+    _loadTagsFromSupabase();
+  }
+
+  Future<void> _loadTagsFromSupabase() async {
+    try {
+      final tags = await SupabaseService.getMyTags(_shopId);
+      setState(() {
+        _tags.clear();
+        _tags.addAll(tags.map((t) => JinsangTag(
+          id: t['id'].toString(),
+          phone: t['phone_hash'] as String,
+          tag: t['tag'] as String,
+          memo: t['memo'] as String?,
+          addedAt: DateTime.tryParse(t['created_at'] ?? '') ?? DateTime.now(),
+        )));
+      });
+    } catch (e) {
+      debugPrint('태그 로드 실패: $e');
+    }
   }
 
   Future<void> _checkScreeningStatus() async {
@@ -333,26 +355,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: const Text('취소'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              for (final phone in phones) {
-                final tag = autoTag ?? _selectedTag;
-                setState(() {
-                  _tags.insert(0, JinsangTag(
+              final tagName = autoTag ?? _selectedTag;
+              final memoText = noteText.isNotEmpty ? noteText : null;
+              try {
+                for (final phone in phones) {
+                  await SupabaseService.addTag(
+                    shopId: _shopId,
                     phone: phone,
-                    tag: noteText.isNotEmpty ? noteText : tag,
-                    addedAt: DateTime.now(),
-                  ));
-                });
+                    tag: tagName,
+                    memo: memoText,
+                  );
+                }
+                await _loadTagsFromSupabase();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ ${contact.displayName} — ${phones.length}개 번호 등록완료'),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: const Color(0xFF34C759),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('등록 실패: $e'),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: const Color(0xFFFF3B30),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
               }
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('✅ ${contact.displayName} — ${phones.length}개 번호 등록완료'),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: const Color(0xFF34C759),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              );
             },
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFFF3B30),
@@ -365,7 +403,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  void _addTag() {
+  Future<void> _addTag() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -390,37 +428,59 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return;
     }
 
-    setState(() {
-      _tags.insert(0, JinsangTag(
-        phone: phone,
-        tag: tag,
-        addedAt: DateTime.now(),
-      ));
+    try {
+      await SupabaseService.addTag(shopId: _shopId, phone: phone, tag: tag);
       _phoneController.clear();
       _customTagController.clear();
-    });
+      await _loadTagsFromSupabase();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('✅ $phone → $tag 등록완료'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF34C759),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ $phone → $tag 등록완료'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF34C759),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('등록 실패: $e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFFFF3B30),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 
-  void _removeTag(int index) {
+  Future<void> _removeTag(int index) async {
     final tag = _tags[index];
     setState(() => _tags.removeAt(index));
+
+    try {
+      if (tag.id != null) {
+        await SupabaseService.deleteTag(tag.id!);
+      }
+    } catch (e) {
+      // 실패 시 복원
+      setState(() => _tags.insert(index, tag));
+    }
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${tag.phone} 삭제됨'),
+        content: Text('${_maskPhone(tag.phone)} 삭제됨'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         action: SnackBarAction(
           label: '되돌리기',
           onPressed: () {
+            // 되돌리기는 로컬만 (이미 DB에서 삭제됨 — 재등록 필요)
             setState(() => _tags.insert(index, tag));
           },
         ),
@@ -470,6 +530,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                         ],
                       ),
+                    ),
+                    IconButton(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const MyTagsScreen()),
+                        );
+                        _loadTagsFromSupabase(); // 돌아오면 새로고침
+                      },
+                      icon: const Icon(Icons.list_alt, color: Colors.white54),
+                      tooltip: '태그 관리',
                     ),
                     IconButton(
                       onPressed: () {
@@ -783,7 +854,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      tag.phone,
+                                      _maskPhone(tag.phone),
                                       style: const TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w600,
@@ -907,19 +978,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return map[tag] ?? '⚠️';
   }
 
+  String _maskPhone(String phone) {
+    // phone_hash인 경우 마스킹
+    if (phone.length > 20) return '${phone.substring(0, 6)}...${phone.substring(phone.length - 4)}';
+    // 일반 전화번호
+    if (phone.length >= 8) return '${phone.substring(0, phone.length - 4)}****';
+    return phone;
+  }
+
   String _formatTime(DateTime dt) {
     return '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }
 
 class JinsangTag {
+  final String? id;
   final String phone;
   final String tag;
+  final String? memo;
   final DateTime addedAt;
 
   JinsangTag({
+    this.id,
     required this.phone,
     required this.tag,
+    this.memo,
     required this.addedAt,
   });
 }

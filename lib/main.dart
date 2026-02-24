@@ -77,18 +77,31 @@ class _AuthGateState extends State<AuthGate> {
           return const AuthScreen();
         }
 
-        // 로그인됨 → 구독 체크
-        return FutureBuilder<bool>(
-          future: _checkSubscription(session.user.id),
-          builder: (context, subSnapshot) {
-            if (subSnapshot.connectionState == ConnectionState.waiting) {
+        // 로그인됨 → 구독 실시간 체크
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: Supabase.instance.client
+              .from('shops')
+              .stream(primaryKey: ['id'])
+              .eq('id', session.user.id),
+          builder: (context, shopSnapshot) {
+            if (!shopSnapshot.hasData) {
               return const Scaffold(
                 backgroundColor: Color(0xFF0D0D0D),
                 body: Center(child: CircularProgressIndicator(color: Color(0xFFFF3B30))),
               );
             }
 
-            if (subSnapshot.data == true) {
+            final shops = shopSnapshot.data!;
+            if (shops.isEmpty) return const PaywallScreen();
+
+            final shop = shops.first;
+            final isActive = shop['is_active'] == true;
+            final until = shop['subscription_until'];
+            final hasSubscription = isActive &&
+                until != null &&
+                DateTime.tryParse(until)?.isAfter(DateTime.now()) == true;
+
+            if (hasSubscription) {
               return const HomePage();
             }
 
@@ -99,24 +112,6 @@ class _AuthGateState extends State<AuthGate> {
     );
   }
 
-  Future<bool> _checkSubscription(String userId) async {
-    try {
-      final shop = await Supabase.instance.client
-          .from('shops')
-          .select('subscription_until, is_active')
-          .eq('id', userId)
-          .maybeSingle();
-
-      if (shop == null || shop['is_active'] != true) return false;
-
-      final until = shop['subscription_until'];
-      if (until == null) return false;
-
-      return DateTime.parse(until).isAfter(DateTime.now());
-    } catch (e) {
-      return false;
-    }
-  }
 }
 
 class HomePage extends StatefulWidget {

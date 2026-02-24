@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -11,6 +12,7 @@ class NoticesScreen extends StatefulWidget {
 class _NoticesScreenState extends State<NoticesScreen> {
   List<Map<String, dynamic>> _notices = [];
   bool _loading = true;
+  Timer? _timer;
 
   static const categoryIcons = {
     '공지': '📢',
@@ -30,6 +32,13 @@ class _NoticesScreenState extends State<NoticesScreen> {
   void initState() {
     super.initState();
     _loadNotices();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _loadNotices());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadNotices() async {

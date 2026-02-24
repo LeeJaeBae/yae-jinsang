@@ -680,7 +680,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: const Color(0xFFFF3B30).withOpacity(0.15),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: const Text('🚨', style: TextStyle(fontSize: 28)),
+                      child: Image.asset('assets/logo.png', width: 36, height: 36),
                     ),
                     const SizedBox(width: 14),
                     const Expanded(

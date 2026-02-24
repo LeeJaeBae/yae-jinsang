@@ -143,7 +143,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     color: const Color(0xFFFF3B30).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: const Text('🚨', style: TextStyle(fontSize: 56)),
+                  child: Image.asset('assets/logo.png', width: 64, height: 64),
                 ),
                 const SizedBox(height: 20),
                 const Text(

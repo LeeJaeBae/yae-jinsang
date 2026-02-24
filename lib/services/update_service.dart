@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateService {
-  static const _currentVersion = '0.1.0';
+  static const _currentVersion = '1.0.0';
   static const _repo = 'LeeJaeBae/yae-jinsang';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
   static const _downloadUrl = 'https://github.com/$_repo/releases/latest/download/app-release.apk';

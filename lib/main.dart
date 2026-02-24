@@ -8,6 +8,7 @@ import 'screens/paywall_screen.dart';
 import 'screens/referral_screen.dart';
 import 'screens/my_tags_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/notices_screen.dart';
 import 'services/update_service.dart';
 
 void main() async {
@@ -699,6 +700,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                         ],
                       ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const NoticesScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.campaign_outlined, color: Colors.white54),
+                      tooltip: '공지사항',
                     ),
                     IconButton(
                       onPressed: () async {

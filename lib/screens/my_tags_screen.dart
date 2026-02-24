@@ -149,7 +149,7 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '해시: ${(tag['phone_hash'] as String).substring(0, 12)}...',
+                '번호: ${_displayPhone(tag)}',
                 style: const TextStyle(fontSize: 12, color: Colors.white38),
               ),
               const SizedBox(height: 16),
@@ -280,6 +280,14 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
   String _maskHash(String hash) {
     if (hash.length < 12) return hash;
     return '${hash.substring(0, 6)}...${hash.substring(hash.length - 4)}';
+  }
+
+  String _displayPhone(Map<String, dynamic> tag) {
+    final last4 = tag['phone_last4'] as String?;
+    if (last4 != null && last4.isNotEmpty) {
+      return '***-****-$last4';
+    }
+    return _maskHash(tag['phone_hash'] as String);
   }
 
   @override
@@ -442,7 +450,7 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        _maskHash(hash),
+                                        _displayPhone(tag),
                                         style: const TextStyle(fontSize: 12, color: Colors.white38, fontFamily: 'monospace'),
                                         overflow: TextOverflow.ellipsis,
                                       ),

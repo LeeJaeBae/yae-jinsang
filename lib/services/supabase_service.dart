@@ -30,9 +30,13 @@ class SupabaseService {
     required String tag,
     String? memo,
   }) async {
+    final last4 = phone.replaceAll(RegExp(r'[^0-9]'), '').length >= 4
+        ? phone.replaceAll(RegExp(r'[^0-9]'), '').substring(phone.replaceAll(RegExp(r'[^0-9]'), '').length - 4)
+        : null;
     await client.from('tags').insert({
       'shop_id': shopId,
       'phone_hash': hashPhone(phone),
+      'phone_last4': last4,
       'tag': tag,
       'memo': memo,
     });

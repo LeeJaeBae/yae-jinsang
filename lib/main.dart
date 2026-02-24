@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -65,7 +66,60 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
+  bool? _hasSubscription;
+  bool _loading = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkSubscription();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _checkSubscription());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkSubscription();
+    }
+  }
+
+  Future<void> _checkSubscription() async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      if (mounted) setState(() { _hasSubscription = null; _loading = false; });
+      return;
+    }
+
+    try {
+      final shop = await Supabase.instance.client
+          .from('shops')
+          .select('subscription_until, is_active')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+      final isActive = shop?['is_active'] == true;
+      final until = shop?['subscription_until'];
+      final valid = isActive &&
+          until != null &&
+          DateTime.tryParse(until)?.isAfter(DateTime.now()) == true;
+
+      if (mounted) setState(() { _hasSubscription = valid; _loading = false; });
+    } catch (e) {
+      debugPrint('구독 체크 실패: $e');
+      if (mounted && _loading) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
@@ -73,46 +127,20 @@ class _AuthGateState extends State<AuthGate> {
       builder: (context, snapshot) {
         final session = Supabase.instance.client.auth.currentSession;
 
-        // 미로그인
-        if (session == null) {
-          return const AuthScreen();
+        if (session == null) return const AuthScreen();
+
+        if (_loading) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0D0D0D),
+            body: Center(child: CircularProgressIndicator(color: Color(0xFFFF3B30))),
+          );
         }
 
-        // 로그인됨 → 구독 실시간 체크
-        return StreamBuilder<List<Map<String, dynamic>>>(
-          stream: Supabase.instance.client
-              .from('shops')
-              .stream(primaryKey: ['id'])
-              .eq('id', session.user.id),
-          builder: (context, shopSnapshot) {
-            if (!shopSnapshot.hasData) {
-              return const Scaffold(
-                backgroundColor: Color(0xFF0D0D0D),
-                body: Center(child: CircularProgressIndicator(color: Color(0xFFFF3B30))),
-              );
-            }
-
-            final shops = shopSnapshot.data!;
-            if (shops.isEmpty) return const PaywallScreen();
-
-            final shop = shops.first;
-            final isActive = shop['is_active'] == true;
-            final until = shop['subscription_until'];
-            final hasSubscription = isActive &&
-                until != null &&
-                DateTime.tryParse(until)?.isAfter(DateTime.now()) == true;
-
-            if (hasSubscription) {
-              return const HomePage();
-            }
-
-            return const PaywallScreen();
-          },
-        );
+        if (_hasSubscription == true) return const HomePage();
+        return const PaywallScreen();
       },
     );
   }
-
 }
 
 class HomePage extends StatefulWidget {

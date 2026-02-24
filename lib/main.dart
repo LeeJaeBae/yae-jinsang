@@ -7,6 +7,7 @@ import 'screens/auth_screen.dart';
 import 'screens/paywall_screen.dart';
 import 'screens/referral_screen.dart';
 import 'screens/my_tags_screen.dart';
+import 'screens/profile_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -537,7 +538,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           context,
                           MaterialPageRoute(builder: (_) => const MyTagsScreen()),
                         );
-                        _loadTagsFromSupabase(); // 돌아오면 새로고침
+                        _loadTagsFromSupabase();
                       },
                       icon: const Icon(Icons.list_alt, color: Colors.white54),
                       tooltip: '태그 관리',
@@ -551,6 +552,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       },
                       icon: const Icon(Icons.card_giftcard, color: Color(0xFFFF6B6B)),
                       tooltip: '추천하기',
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.person_outline, color: Colors.white54),
+                      tooltip: '내 정보',
                     ),
                   ],
                 ),

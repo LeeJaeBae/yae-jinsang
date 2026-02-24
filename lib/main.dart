@@ -8,6 +8,7 @@ import 'screens/paywall_screen.dart';
 import 'screens/referral_screen.dart';
 import 'screens/my_tags_screen.dart';
 import 'screens/profile_screen.dart';
+import 'services/update_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -153,6 +154,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _loadTagsFromSupabase();
     _checkPendingPhone();
     _listenForRegisterPhone();
+    // 앱 시작 2초 후 업데이트 체크
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) UpdateService.checkForUpdate(context);
+    });
   }
 
   /// 앱 시작 시 pending phone 확인

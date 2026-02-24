@@ -41,8 +41,11 @@ class JinsangCallScreeningService : CallScreeningService() {
                 val result = lookupJinsang(hash)
                 if (result.isNotEmpty()) {
                     Log.d("YaeJinsang", "⚠️ 진상 감지: $result")
-                    showWarningOverlay(number, result)
+                    showWarningOverlay(number, result, isJinsang = true)
                     showNotification(number, result)
+                } else {
+                    Log.d("YaeJinsang", "✅ 미등록 번호")
+                    showWarningOverlay(number, emptyList(), isJinsang = false)
                 }
             } catch (e: Exception) {
                 Log.e("YaeJinsang", "조회 실패: ${e.message}")
@@ -95,7 +98,19 @@ class JinsangCallScreeningService : CallScreeningService() {
         return results
     }
 
-    private fun showWarningOverlay(number: String, tags: List<Pair<String, Int>>) {
+    private fun openAppWithNumber(number: String) {
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("register_phone", number)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("YaeJinsang", "앱 실행 실패: ${e.message}")
+        }
+    }
+
+    private fun showWarningOverlay(number: String, tags: List<Pair<String, Int>>, isJinsang: Boolean = true) {
         if (!Settings.canDrawOverlays(this)) {
             Log.w("YaeJinsang", "오버레이 권한 없음")
             return
@@ -110,7 +125,6 @@ class JinsangCallScreeningService : CallScreeningService() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
                 PixelFormat.TRANSLUCENT
             )
@@ -119,66 +133,130 @@ class JinsangCallScreeningService : CallScreeningService() {
             val layout = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(48, 80, 48, 48)
-                setBackgroundColor(0xEE1A1A1A.toInt())
+                setBackgroundColor(if (isJinsang) 0xEE1A1A1A.toInt() else 0xDD1A1A1A.toInt())
             }
-
-            // 경고 이모지 + 제목
-            val titleView = TextView(this).apply {
-                text = "🚨 얘진상 경고"
-                textSize = 24f
-                setTextColor(0xFFFF3B30.toInt())
-                gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 16)
-            }
-            layout.addView(titleView)
 
             // 번호 (마스킹)
             val masked = if (number.length > 4) {
                 "${"*".repeat(number.length - 4)}${number.takeLast(4)}"
             } else number
 
-            val numberView = TextView(this).apply {
-                text = masked
-                textSize = 18f
+            if (isJinsang) {
+                // === 진상 감지 모드 ===
+                val titleView = TextView(this).apply {
+                    text = "🚨 얘진상 경고"
+                    textSize = 24f
+                    setTextColor(0xFFFF3B30.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 16)
+                }
+                layout.addView(titleView)
+
+                val numberView = TextView(this).apply {
+                    text = masked
+                    textSize = 18f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 24)
+                }
+                layout.addView(numberView)
+
+                val totalCount = tags.sumOf { it.second }
+                val tagSummary = tags.joinToString(", ") { "${it.first} ${it.second}건" }
+
+                val infoView = TextView(this).apply {
+                    text = "⚠️ ${totalCount}개 업소에서 주의 등록\n$tagSummary"
+                    textSize = 16f
+                    setTextColor(0xFFFF6B6B.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 16)
+                    lineHeight = 56
+                }
+                layout.addView(infoView)
+
+                val hintView = TextView(this).apply {
+                    text = "응대에 주의하세요"
+                    textSize = 14f
+                    setTextColor(0x99FFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 24)
+                }
+                layout.addView(hintView)
+            } else {
+                // === 미등록 번호 모드 ===
+                val titleView = TextView(this).apply {
+                    text = "📞 수신 전화"
+                    textSize = 18f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 8)
+                }
+                layout.addView(titleView)
+
+                val numberView = TextView(this).apply {
+                    text = masked
+                    textSize = 16f
+                    setTextColor(0xAAFFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 16)
+                }
+                layout.addView(numberView)
+
+                val safeView = TextView(this).apply {
+                    text = "✅ 등록된 진상 정보 없음"
+                    textSize = 14f
+                    setTextColor(0xFF34C759.toInt())
+                    gravity = Gravity.CENTER
+                    setPadding(0, 0, 0, 16)
+                }
+                layout.addView(safeView)
+            }
+
+            // === 등록 버튼 (공통) ===
+            val btnLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+
+            val registerBtn = TextView(this).apply {
+                text = if (isJinsang) "✏️ 태그 추가" else "🚨 진상 등록"
+                textSize = 15f
                 setTextColor(0xFFFFFFFF.toInt())
                 gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 24)
+                setPadding(48, 24, 48, 24)
+                setBackgroundColor(0xFFFF3B30.toInt())
+                setOnClickListener {
+                    openAppWithNumber(number)
+                    try { windowManager.removeView(layout) } catch (_: Exception) {}
+                }
             }
-            layout.addView(numberView)
+            btnLayout.addView(registerBtn)
 
-            // 태그 정보
-            val totalCount = tags.sumOf { it.second }
-            val tagSummary = tags.joinToString(", ") { "${it.first} ${it.second}건" }
-
-            val infoView = TextView(this).apply {
-                text = "⚠️ ${totalCount}개 업소에서 주의 등록\n$tagSummary"
-                textSize = 16f
-                setTextColor(0xFFFF6B6B.toInt())
-                gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 16)
-                lineHeight = 56
-            }
-            layout.addView(infoView)
-
-            // 안내
-            val hintView = TextView(this).apply {
-                text = "응대에 주의하세요"
+            val dismissBtn = TextView(this).apply {
+                text = "닫기"
                 textSize = 14f
                 setTextColor(0x99FFFFFF.toInt())
                 gravity = Gravity.CENTER
+                setPadding(36, 24, 36, 24)
+                setOnClickListener {
+                    try { windowManager.removeView(layout) } catch (_: Exception) {}
+                }
             }
-            layout.addView(hintView)
+            btnLayout.addView(dismissBtn)
+
+            layout.addView(btnLayout)
 
             windowManager.addView(layout, params)
 
-            // 8초 후 자동 제거
+            // 자동 제거: 진상이면 15초, 미등록이면 8초
+            val dismissDelay = if (isJinsang) 15000L else 8000L
             handler.postDelayed({
                 try {
                     windowManager.removeView(layout)
                 } catch (e: Exception) {
                     Log.e("YaeJinsang", "오버레이 제거 실패: ${e.message}")
                 }
-            }, 8000)
+            }, dismissDelay)
         }
     }
 

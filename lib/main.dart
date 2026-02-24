@@ -151,6 +151,174 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _checkScreeningStatus();
     _checkOverlayPermission();
     _loadTagsFromSupabase();
+    _checkPendingPhone();
+    _listenForRegisterPhone();
+  }
+
+  /// 앱 시작 시 pending phone 확인
+  Future<void> _checkPendingPhone() async {
+    try {
+      final phone = await platform.invokeMethod('getPendingPhone');
+      if (phone != null && phone is String && phone.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showQuickRegisterDialog(phone);
+        });
+      }
+    } catch (e) {
+      debugPrint('Pending phone 확인 실패: $e');
+    }
+  }
+
+  /// 네이티브에서 실시간으로 전화번호 등록 요청 수신
+  void _listenForRegisterPhone() {
+    platform.setMethodCallHandler((call) async {
+      if (call.method == 'onRegisterPhone') {
+        final phone = call.arguments as String?;
+        if (phone != null && phone.isNotEmpty && mounted) {
+          _showQuickRegisterDialog(phone);
+        }
+      }
+    });
+  }
+
+  /// 빠른 진상 등록 다이얼로그
+  void _showQuickRegisterDialog(String phone) {
+    String selectedTag = '폭력';
+    final memoController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('🚨 진상 등록'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 전화번호
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF252525),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.phone, size: 18, color: Colors.white38),
+                    const SizedBox(width: 8),
+                    Text(
+                      phone.length > 4
+                          ? '${'*' * (phone.length - 4)}${phone.substring(phone.length - 4)}'
+                          : phone,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 태그 선택
+              const Text('태그', style: TextStyle(fontSize: 13, color: Colors.white54)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: presetTags.map((tag) {
+                  final isSelected = selectedTag == tag.name;
+                  return GestureDetector(
+                    onTap: () => setDialogState(() => selectedTag = tag.name),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected ? tag.color.withOpacity(0.25) : const Color(0xFF252525),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? tag.color.withOpacity(0.6) : Colors.white.withOpacity(0.08),
+                        ),
+                      ),
+                      child: Text(
+                        '${tag.emoji} ${tag.name}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isSelected ? Colors.white : Colors.white54,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+
+              // 메모
+              TextField(
+                controller: memoController,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '메모 (선택)',
+                  hintStyle: const TextStyle(color: Colors.white24),
+                  filled: true,
+                  fillColor: const Color(0xFF252525),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  await SupabaseService.addTag(
+                    shopId: _shopId,
+                    phone: phone,
+                    tag: selectedTag,
+                    memo: memoController.text.trim().isEmpty ? null : memoController.text.trim(),
+                  );
+                  await _loadTagsFromSupabase();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ $selectedTag 등록 완료'),
+                        behavior: SnackBarBehavior.floating,
+                        backgroundColor: const Color(0xFF34C759),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('등록 실패: $e'),
+                        behavior: SnackBarBehavior.floating,
+                        backgroundColor: const Color(0xFFFF3B30),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    );
+                  }
+                }
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF3B30),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('등록'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadTagsFromSupabase() async {

@@ -12,12 +12,39 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.thebespoke.yae_jinsang/screening"
     private val REQUEST_ID = 1
+    private var pendingPhone: String? = null
+    private var methodChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleRegisterIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleRegisterIntent(intent)
+    }
+
+    private fun handleRegisterIntent(intent: Intent) {
+        val phone = intent.getStringExtra("register_phone")
+        if (phone != null) {
+            pendingPhone = phone
+            // Flutter 준비됐으면 바로 전달
+            methodChannel?.invokeMethod("onRegisterPhone", phone)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
+                "getPendingPhone" -> {
+                    val phone = pendingPhone
+                    pendingPhone = null
+                    result.success(phone)
+                }
                 "requestScreeningRole" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val roleManager = getSystemService(RoleManager::class.java)

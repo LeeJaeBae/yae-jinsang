@@ -14,6 +14,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _selectedCategory;
   bool _loading = true;
   bool _saving = false;
+  bool _showName = false;
   Map<String, dynamic>? _shopData;
 
   String get _shopId => Supabase.instance.client.auth.currentUser!.id;
@@ -49,6 +50,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _nameController.text = data['name'] ?? '';
           _selectedRegion = data['region'];
           _selectedCategory = data['category'];
+          _showName = data['show_name'] ?? false;
           _loading = false;
         });
       } else {
@@ -89,6 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'name': name,
         'region': _selectedRegion,
         'category': _selectedCategory,
+        'show_name': _showName,
       }).eq('id', _shopId);
 
       setState(() => _saving = false);
@@ -370,6 +373,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       );
                     }).toList(),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 업소명 공개 동의
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A1A),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('업소명 공개', style: TextStyle(fontSize: 15, color: Colors.white)),
+                              SizedBox(height: 2),
+                              Text(
+                                '진상 경고 시 다른 업소에 내 업소명 표시',
+                                style: TextStyle(fontSize: 12, color: Colors.white38),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _showName,
+                          onChanged: (v) => setState(() => _showName = v),
+                          activeColor: const Color(0xFFFF9500),
+                          inactiveTrackColor: Colors.white12,
+                        ),
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 20),

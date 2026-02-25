@@ -75,7 +75,8 @@ class JinsangCallScreeningService : CallScreeningService() {
         val tag: String,
         val count: Int,
         val region: String?,
-        val category: String?
+        val category: String?,
+        val shopName: String?
     )
 
     private fun lookupJinsang(hash: String): List<JinsangResult> {
@@ -101,7 +102,8 @@ class JinsangCallScreeningService : CallScreeningService() {
                     tag = obj.getString("tag"),
                     count = obj.getInt("count"),
                     region = obj.optString("region", null),
-                    category = obj.optString("category", null)
+                    category = obj.optString("category", null),
+                    shopName = if (obj.isNull("shop_name")) null else obj.optString("shop_name", null)
                 ))
             }
         } catch (e: Exception) {
@@ -140,8 +142,11 @@ class JinsangCallScreeningService : CallScreeningService() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             )
             params.gravity = Gravity.CENTER
@@ -202,6 +207,19 @@ class JinsangCallScreeningService : CallScreeningService() {
                     lineHeight = 56
                 }
                 layout.addView(infoView)
+
+                // 업소명 (공개 동의한 업소만)
+                val shopNames = tags.mapNotNull { it.shopName }.distinct()
+                if (shopNames.isNotEmpty()) {
+                    val shopView = TextView(this).apply {
+                        text = "🏪 ${shopNames.joinToString(", ")}"
+                        textSize = 14f
+                        setTextColor(0xFFFFAA00.toInt())
+                        gravity = Gravity.CENTER
+                        setPadding(0, 0, 0, 8)
+                    }
+                    layout.addView(shopView)
+                }
 
                 // 지역+업종 정보
                 val locationInfo = tags

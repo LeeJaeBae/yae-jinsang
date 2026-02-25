@@ -389,6 +389,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           tag: t['tag'] as String,
           memo: t['memo'] as String?,
           phoneDisplay: t['phone_display'] as String?,
+          phoneLast4: t['phone_last4'] as String?,
           addedAt: DateTime.tryParse(t['created_at'] ?? '') ?? DateTime.now(),
         )));
       });
@@ -1491,6 +1492,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
   String _maskPhone(JinsangTag tag) {
     if (tag.phoneDisplay != null && tag.phoneDisplay!.isNotEmpty) return tag.phoneDisplay!;
+    if (tag.phoneLast4 != null && tag.phoneLast4!.isNotEmpty) return '***-****-${tag.phoneLast4}';
     final phone = tag.phone;
     if (phone.length > 20) return '${phone.substring(0, 6)}...${phone.substring(phone.length - 4)}';
     if (phone.length >= 8) return '${phone.substring(0, phone.length - 4)}****';
@@ -2057,6 +2059,7 @@ class JinsangTag {
   final String tag;
   final String? memo;
   final String? phoneDisplay;
+  final String? phoneLast4;
   final DateTime addedAt;
 
   JinsangTag({
@@ -2065,6 +2068,7 @@ class JinsangTag {
     required this.tag,
     this.memo,
     this.phoneDisplay,
+    this.phoneLast4,
     required this.addedAt,
   });
 }

@@ -33,10 +33,24 @@ class SupabaseService {
     final last4 = phone.replaceAll(RegExp(r'[^0-9]'), '').length >= 4
         ? phone.replaceAll(RegExp(r'[^0-9]'), '').substring(phone.replaceAll(RegExp(r'[^0-9]'), '').length - 4)
         : null;
+    // 마스킹 표시용: 010-1234-5678 → 010-****-5678
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    String? phoneDisplay;
+    if (digits.length >= 8) {
+      if (digits.length == 11) {
+        phoneDisplay = '${digits.substring(0, 3)}-****-${digits.substring(7)}';
+      } else if (digits.length == 10) {
+        phoneDisplay = '${digits.substring(0, 3)}-***-${digits.substring(6)}';
+      } else {
+        phoneDisplay = '${'*' * (digits.length - 4)}${digits.substring(digits.length - 4)}';
+      }
+    }
+
     await client.from('tags').insert({
       'shop_id': shopId,
       'phone_hash': hashPhone(phone),
       'phone_last4': last4,
+      'phone_display': phoneDisplay,
       'tag': tag,
       'memo': memo,
     });

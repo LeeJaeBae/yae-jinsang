@@ -450,6 +450,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
 
+                  const SizedBox(height: 24),
+
+                  // 버전 정보
+                  Center(
+                    child: Text(
+                      '얘진상 v1.1.0',
+                      style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.15)),
+                    ),
+                  ),
+
                   const SizedBox(height: 40),
                 ],
               ),

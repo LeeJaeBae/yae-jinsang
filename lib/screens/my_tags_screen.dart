@@ -70,6 +70,8 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
       final matchTag = _filterTag == '전체' || t['tag'] == _filterTag;
       final matchSearch = query.isEmpty ||
           (t['phone_hash'] as String).contains(query) ||
+          (t['phone_display'] ?? '').toString().contains(query) ||
+          (t['phone_last4'] ?? '').toString().contains(query) ||
           (t['tag'] as String).toLowerCase().contains(query) ||
           (t['memo'] ?? '').toString().toLowerCase().contains(query);
       return matchTag && matchSearch;
@@ -283,6 +285,8 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
   }
 
   String _displayPhone(Map<String, dynamic> tag) {
+    final display = tag['phone_display'] as String?;
+    if (display != null && display.isNotEmpty) return display;
     final last4 = tag['phone_last4'] as String?;
     if (last4 != null && last4.isNotEmpty) {
       return '***-****-$last4';

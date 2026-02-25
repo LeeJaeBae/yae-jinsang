@@ -388,6 +388,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           phone: t['phone_hash'] as String,
           tag: t['tag'] as String,
           memo: t['memo'] as String?,
+          phoneDisplay: t['phone_display'] as String?,
           addedAt: DateTime.tryParse(t['created_at'] ?? '') ?? DateTime.now(),
         )));
       });
@@ -939,7 +940,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${_maskPhone(tag.phone)} 삭제됨'),
+        content: Text('${_maskPhone(tag)} 삭제됨'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         action: SnackBarAction(
@@ -989,10 +990,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                                 ),
                               ),
                               Text(
-                                '진상 손님 사전 차단 시스템',
+                                'v1.1.0',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white38,
+                                  fontSize: 11,
+                                  color: Colors.white24,
                                 ),
                               ),
                             ],
@@ -1363,7 +1364,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      _maskPhone(tag.phone),
+                                      _maskPhone(tag),
                                       style: const TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w600,
@@ -1487,10 +1488,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     return map[tag] ?? '⚠️';
   }
 
-  String _maskPhone(String phone) {
-    // phone_hash인 경우 마스킹
+  String _maskPhone(JinsangTag tag) {
+    if (tag.phoneDisplay != null && tag.phoneDisplay!.isNotEmpty) return tag.phoneDisplay!;
+    final phone = tag.phone;
     if (phone.length > 20) return '${phone.substring(0, 6)}...${phone.substring(phone.length - 4)}';
-    // 일반 전화번호
     if (phone.length >= 8) return '${phone.substring(0, phone.length - 4)}****';
     return phone;
   }
@@ -2054,6 +2055,7 @@ class JinsangTag {
   final String phone;
   final String tag;
   final String? memo;
+  final String? phoneDisplay;
   final DateTime addedAt;
 
   JinsangTag({
@@ -2061,6 +2063,7 @@ class JinsangTag {
     required this.phone,
     required this.tag,
     this.memo,
+    this.phoneDisplay,
     required this.addedAt,
   });
 }

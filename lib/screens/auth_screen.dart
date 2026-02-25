@@ -141,13 +141,15 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       }
 
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
       // 인증 완료 → main.dart에서 상태 감지
     } catch (e) {
-      setState(() {
-        _error = '인증 실패: $e';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = '인증 실패: $e';
+          _loading = false;
+        });
+      }
     }
   }
 

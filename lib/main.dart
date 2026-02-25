@@ -223,8 +223,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) UpdateService.checkForUpdate(context);
     });
-    // 홈 튜토리얼 체크
-    _checkHomeTutorial();
+    // 홈 튜토리얼 체크 (임시 비활성화 — 스포트라이트 이슈 수정 후 재활성화)
+    // _checkHomeTutorial();
     // shop_id를 SharedPreferences에 저장 (Kotlin에서 구독 체크용)
     _saveShopId();
   }
@@ -238,9 +238,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     final prefs = await SharedPreferences.getInstance();
     final done = prefs.getBool('home_tutorial_done') ?? false;
     if (!done && mounted) {
-      // 약간 딜레이 줘서 화면 렌더링 후 표시
-      Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) setState(() => _showHomeTutorial = true);
+      // 위젯 렌더링 완료 후 표시 (GlobalKey 위치 잡히도록)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) setState(() => _showHomeTutorial = true);
+        });
       });
     }
   }
@@ -1018,6 +1020,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     return Stack(
       children: [
         Scaffold(
+      backgroundColor: const Color(0xFF0D0D0D),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -1491,20 +1494,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   }
 
   Widget _buildTutorialOverlay() {
-    final step = _coachSteps[_tutorialStep];
+    final steps = _coachSteps;
+    if (_tutorialStep >= steps.length) {
+      Future.microtask(() => _finishHomeTutorial());
+      return const SizedBox.shrink();
+    }
+    final step = steps[_tutorialStep];
     final rect = _getWidgetRect(step.key);
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
-        if (_tutorialStep < _coachSteps.length - 1) {
+        if (_tutorialStep < steps.length - 1) {
           setState(() => _tutorialStep++);
         } else {
+          setState(() => _showHomeTutorial = false);
           _finishHomeTutorial();
         }
       },
-      child: Stack(
+      child: SizedBox.expand(child: Stack(
         children: [
-          // 반투명 배경 (하이라이트 영역 빼고)
+          // 반투명 배경
           CustomPaint(
             size: MediaQuery.of(context).size,
             painter: _SpotlightPainter(
@@ -1514,39 +1524,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           ),
 
           // 툴팁 말풍선
-          if (rect != null)
-            Positioned(
-              left: 24,
-              right: 24,
-              top: _tooltipTop(rect),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 위에 표시할 때 화살표
-                  if (rect.top > MediaQuery.of(context).size.height * 0.5)
-                    _buildTooltipCard(step)
-                  else ...[
-                    // 아래에 표시
-                  ],
-
-                  if (rect.top <= MediaQuery.of(context).size.height * 0.5)
-                    _buildTooltipCard(step),
-                ],
-              ),
-            ),
+          Positioned(
+            left: 24,
+            right: 24,
+            top: rect != null ? _tooltipTop(rect) : MediaQuery.of(context).size.height * 0.35,
+            child: _buildTooltipCard(step),
+          ),
         ],
-      ),
+      )),
     );
   }
 
   double _tooltipTop(Rect rect) {
     final screenH = MediaQuery.of(context).size.height;
-    // 대상이 화면 상반부면 아래에 표시, 하반부면 위에 표시
     if (rect.top <= screenH * 0.5) {
       return rect.bottom + 16;
     } else {
-      // 툴팁이 대상 위에 → 대략 계산
-      return rect.top - 160;
+      return (rect.top - 180).clamp(40.0, screenH - 200);
     }
   }
 

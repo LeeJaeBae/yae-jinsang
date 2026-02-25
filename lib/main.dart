@@ -1068,7 +1068,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
               ),
             ),
 
-            // 스크리닝 상태
+            // 스크리닝 상태 (꺼져있을 때만)
+            if (!_screeningEnabled)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),

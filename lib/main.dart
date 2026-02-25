@@ -11,6 +11,8 @@ import 'screens/my_tags_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/notices_screen.dart';
 import 'services/update_service.dart';
+import 'screens/onboarding_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,12 +71,14 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   bool? _hasSubscription;
   bool _loading = true;
+  bool? _onboardingDone;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _checkOnboarding();
     _checkSubscription();
     _timer = Timer.periodic(const Duration(seconds: 30), (_) => _checkSubscription());
   }
@@ -93,12 +97,21 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _onboardingDone = prefs.getBool('onboarding_done') ?? false);
+  }
+
   Future<void> _checkSubscription() async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) {
       if (mounted) setState(() { _hasSubscription = null; _loading = false; });
       return;
     }
+
+    // Kotlin CallScreeningService에서 구독 체크용
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('supabase_user_id', session.user.id);
 
     try {
       final shop = await Supabase.instance.client
@@ -126,6 +139,13 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         final session = Supabase.instance.client.auth.currentSession;
+
+        // 온보딩 (로그인 전에 보여줌)
+        if (_onboardingDone == false) {
+          return OnboardingScreen(onComplete: () {
+            setState(() => _onboardingDone = true);
+          });
+        }
 
         if (session == null) return const AuthScreen();
 
@@ -173,6 +193,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
   String get _shopId => Supabase.instance.client.auth.currentUser!.id;
 
+  bool _showHomeTutorial = false;
+  int _tutorialStep = 0;
+
+  // 코치마크용 GlobalKey
+  final _keyScreeningCard = GlobalKey();
+  final _keyTagManage = GlobalKey();
+  final _keyRecommend = GlobalKey();
+  final _keyPhoneInput = GlobalKey();
+  final _keyTagChips = GlobalKey();
+  final _keyRegisterBtn = GlobalKey();
+  final _keyTagList = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -191,6 +223,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) UpdateService.checkForUpdate(context);
     });
+    // 홈 튜토리얼 체크
+    _checkHomeTutorial();
+    // shop_id를 SharedPreferences에 저장 (Kotlin에서 구독 체크용)
+    _saveShopId();
+  }
+
+  Future<void> _saveShopId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('shop_id', _shopId);
+  }
+
+  Future<void> _checkHomeTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    final done = prefs.getBool('home_tutorial_done') ?? false;
+    if (!done && mounted) {
+      // 약간 딜레이 줘서 화면 렌더링 후 표시
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) setState(() => _showHomeTutorial = true);
+      });
+    }
+  }
+
+  Future<void> _finishHomeTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('home_tutorial_done', true);
+    if (mounted) setState(() => _showHomeTutorial = false);
   }
 
   @override
@@ -957,7 +1015,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -1036,6 +1096,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                     Row(
                       children: [
                         Expanded(
+                          key: _keyTagManage,
                           child: _QuickActionButton(
                             icon: Icons.list_alt,
                             label: '태그 관리',
@@ -1050,6 +1111,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                         ),
                         const SizedBox(width: 8),
                         Expanded(
+                          key: _keyRecommend,
                           child: _QuickActionButton(
                             icon: Icons.card_giftcard,
                             label: '추천하기',
@@ -1186,6 +1248,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
             // 진상 등록 섹션
             SliverToBoxAdapter(
+              key: _keyPhoneInput,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                 child: Column(
@@ -1245,6 +1308,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
                     // 등록 버튼
                     SizedBox(
+                      key: _keyRegisterBtn,
                       width: double.infinity,
                       child: FilledButton.icon(
                         onPressed: _addTag,
@@ -1264,6 +1328,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
 
             // 등록 목록 헤더
             SliverToBoxAdapter(
+              key: _keyTagList,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
                 child: Row(
@@ -1403,6 +1468,146 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
             const SliverToBoxAdapter(child: SizedBox(height: 40)),
           ],
         ),
+      ),
+    ),
+        if (_showHomeTutorial) _buildTutorialOverlay(),
+      ],
+    );
+  }
+
+  List<_CoachStep> get _coachSteps => [
+    _CoachStep(key: _keyTagManage, title: '🏷️ 태그 관리', desc: '등록한 진상 목록을 검색하고\n태그별로 필터링할 수 있어요.'),
+    _CoachStep(key: _keyRecommend, title: '🤝 추천하기', desc: '동료 사장님에게 추천하면\n1개월 무료 혜택을 받아요!'),
+    _CoachStep(key: _keyPhoneInput, title: '📝 진상 등록', desc: '전화번호 입력 후 태그를 선택해서\n진상을 등록하세요.'),
+    _CoachStep(key: _keyRegisterBtn, title: '✅ 등록 버튼', desc: '번호와 태그를 선택한 후\n여기를 눌러 등록 완료!'),
+    _CoachStep(key: _keyTagList, title: '📋 등록 목록', desc: '내가 등록한 진상 목록이에요.\n좌로 밀면 삭제할 수 있어요.'),
+  ];
+
+  Rect? _getWidgetRect(GlobalKey key) {
+    final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return null;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    return Rect.fromLTWH(offset.dx, offset.dy, renderBox.size.width, renderBox.size.height);
+  }
+
+  Widget _buildTutorialOverlay() {
+    final step = _coachSteps[_tutorialStep];
+    final rect = _getWidgetRect(step.key);
+
+    return GestureDetector(
+      onTap: () {
+        if (_tutorialStep < _coachSteps.length - 1) {
+          setState(() => _tutorialStep++);
+        } else {
+          _finishHomeTutorial();
+        }
+      },
+      child: Stack(
+        children: [
+          // 반투명 배경 (하이라이트 영역 빼고)
+          CustomPaint(
+            size: MediaQuery.of(context).size,
+            painter: _SpotlightPainter(
+              target: rect,
+              padding: 8,
+            ),
+          ),
+
+          // 툴팁 말풍선
+          if (rect != null)
+            Positioned(
+              left: 24,
+              right: 24,
+              top: _tooltipTop(rect),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 위에 표시할 때 화살표
+                  if (rect.top > MediaQuery.of(context).size.height * 0.5)
+                    _buildTooltipCard(step)
+                  else ...[
+                    // 아래에 표시
+                  ],
+
+                  if (rect.top <= MediaQuery.of(context).size.height * 0.5)
+                    _buildTooltipCard(step),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  double _tooltipTop(Rect rect) {
+    final screenH = MediaQuery.of(context).size.height;
+    // 대상이 화면 상반부면 아래에 표시, 하반부면 위에 표시
+    if (rect.top <= screenH * 0.5) {
+      return rect.bottom + 16;
+    } else {
+      // 툴팁이 대상 위에 → 대략 계산
+      return rect.top - 160;
+    }
+  }
+
+  Widget _buildTooltipCard(_CoachStep step) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFF3B30).withOpacity(0.5), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFF3B30).withOpacity(0.15),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            step.title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            step.desc,
+            style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // 인디케이터
+              Row(
+                children: List.generate(_coachSteps.length, (i) {
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: _tutorialStep == i ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _tutorialStep == i ? const Color(0xFFFF3B30) : Colors.white24,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  );
+                }),
+              ),
+              Text(
+                _tutorialStep < _coachSteps.length - 1 ? '탭 → 다음' : '탭 → 완료 ✓',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _tutorialStep < _coachSteps.length - 1 ? Colors.white38 : const Color(0xFF34C759),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -2071,6 +2276,53 @@ class JinsangTag {
     this.phoneLast4,
     required this.addedAt,
   });
+}
+
+class _CoachStep {
+  final GlobalKey key;
+  final String title;
+  final String desc;
+
+  _CoachStep({required this.key, required this.title, required this.desc});
+}
+
+class _SpotlightPainter extends CustomPainter {
+  final Rect? target;
+  final double padding;
+
+  _SpotlightPainter({this.target, this.padding = 8});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()..color = Colors.black.withOpacity(0.75);
+
+    if (target == null) {
+      canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+      return;
+    }
+
+    final spotlight = RRect.fromRectAndRadius(
+      target!.inflate(padding),
+      const Radius.circular(12),
+    );
+
+    final path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRRect(spotlight)
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(path, bgPaint);
+
+    // 하이라이트 테두리
+    final borderPaint = Paint()
+      ..color = const Color(0xFFFF3B30).withOpacity(0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRRect(spotlight, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightPainter old) => old.target != target;
 }
 
 class TagOption {

@@ -1,18 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/supabase_service.dart';
 
-class PaywallScreen extends StatelessWidget {
+class PaywallScreen extends StatefulWidget {
   const PaywallScreen({super.key});
 
   @override
+  State<PaywallScreen> createState() => _PaywallScreenState();
+}
+
+class _PaywallScreenState extends State<PaywallScreen> {
+  bool _isReferred = false;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkReferral();
+  }
+
+  Future<void> _checkReferral() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final referred = await SupabaseService.hasBeenReferred(user.id);
+      if (mounted) {
+        setState(() {
+          _isReferred = referred;
+          _loaded = true;
+        });
+      }
+    } else {
+      setState(() => _loaded = true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final price = _isReferred ? '29,000' : '49,000';
+    final priceNote = _isReferred ? '원/첫 달 (추천 할인)' : '원/월';
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
       body: SafeArea(
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -62,26 +94,30 @@ class PaywallScreen extends StatelessWidget {
                         style: TextStyle(color: Colors.white54, fontSize: 14),
                       ),
                       const SizedBox(height: 8),
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '49,000',
-                            style: TextStyle(
-                              fontSize: 40,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -1,
-                            ),
+                      if (_isReferred)
+                        const Text(
+                          '49,000원',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.white38,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: Colors.white38,
                           ),
-                          Padding(
-                            padding: EdgeInsets.only(bottom: 6),
-                            child: Text(
-                              '원/월',
-                              style: TextStyle(color: Colors.white54, fontSize: 16),
-                            ),
-                          ),
-                        ],
+                        ),
+                      if (_isReferred) const SizedBox(height: 4),
+                      Text(
+                        '$price원',
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -1,
+                          color: _isReferred ? const Color(0xFF34C759) : Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _isReferred ? '첫 달 추천 할인가' : '/월',
+                        style: const TextStyle(color: Colors.white54, fontSize: 14),
                       ),
                       const SizedBox(height: 20),
                       _feature('🛡️', '수신 전화 실시간 진상 감지'),

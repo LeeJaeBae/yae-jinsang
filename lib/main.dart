@@ -136,11 +136,14 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           );
         }
 
-        if (_hasSubscription == true) return const HomePage();
+        if (_hasSubscription == true) return _homePage;
         return const PaywallScreen();
       },
     );
   }
+
+  // HomePage 인스턴스 캐시 — StreamBuilder 리빌드 시 state 유지
+  static const _homePage = HomePage();
 }
 
 class HomePage extends StatefulWidget {
@@ -150,7 +153,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin, WidgetsBindingObserver {
   static const platform = MethodChannel('com.thebespoke.yae_jinsang/screening');
   bool _screeningEnabled = false;
   bool _overlayEnabled = false;
@@ -173,15 +176,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _checkScreeningStatus();
-    _checkOverlayPermission();
+    WidgetsBinding.instance.addObserver(this);
+    _listenForRegisterPhone();
     _loadTagsFromSupabase();
     _checkPendingPhone();
-    _listenForRegisterPhone();
-    // 앱 시작 2초 후 업데이트 체크
+    // 네이티브 채널 준비 후 상태 체크
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _checkScreeningStatus();
+        _checkOverlayPermission();
+      }
+    });
+    // 업데이트 체크
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) UpdateService.checkForUpdate(context);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _phoneController.dispose();
+    _customTagController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkScreeningStatus();
+      _checkOverlayPermission();
+    }
   }
 
   /// 앱 시작 시 pending phone 확인
@@ -198,7 +223,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  /// 네이티브에서 실시간으로 전화번호 등록 요청 수신
+  /// 네이티브에서 실시간으로 전화번호 등록 요청 + 스크리닝 상태 수신
   void _listenForRegisterPhone() {
     platform.setMethodCallHandler((call) async {
       if (call.method == 'onRegisterPhone') {
@@ -206,6 +231,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (phone != null && phone.isNotEmpty && mounted) {
           _showQuickRegisterDialog(phone);
         }
+      } else if (call.method == 'onScreeningStateChanged') {
+        final enabled = call.arguments as bool? ?? false;
+        if (mounted) setState(() => _screeningEnabled = enabled);
       }
     });
   }
@@ -371,7 +399,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _checkScreeningStatus() async {
     try {
       final result = await platform.invokeMethod('isScreeningEnabled');
-      setState(() => _screeningEnabled = result == true);
+      print('🔴 isScreeningEnabled 결과: $result (type: ${result.runtimeType})');
+      if (mounted) setState(() => _screeningEnabled = result == true);
     } catch (e) {
       debugPrint('스크리닝 상태 확인 실패: $e');
     }
@@ -397,6 +426,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _requestScreeningRole() async {
+    // 이미 활성화면 스낵바로 알림
+    if (_screeningEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('✅ 이미 기본 전화 스크리닝 앱으로 등록되어 있습니다'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF34C759),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+      return;
+    }
     try {
       await platform.invokeMethod('requestScreeningRole');
       await Future.delayed(const Duration(seconds: 1));
@@ -415,20 +458,47 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _openContactPicker() async {
-    if (!await FlutterContacts.requestPermission()) {
+    List<Contact> contacts;
+    try {
+      // 권한 체크 우회 — 직접 로드 시도
+      await FlutterContacts.requestPermission();
+      contacts = await FlutterContacts.getContacts(withProperties: true);
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('연락처 접근 권한이 필요합니다'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1A1A),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('📋 연락처 권한 필요'),
+            content: Text(
+              '연락처에서 진상을 불러오려면 권한이 필요합니다.\n\n'
+              '설정 → 권한 → 연락처 → 허용\n\n'
+              '오류: $e',
+              style: const TextStyle(color: Colors.white70, height: 1.5),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  platform.invokeMethod('openAppSettings').catchError((_) {});
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF3B30),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('설정 열기'),
+              ),
+            ],
           ),
         );
       }
       return;
     }
-
-    final contacts = await FlutterContacts.getContacts(withProperties: true);
     if (!mounted) return;
 
     showModalBottomSheet(
@@ -443,6 +513,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         onSelect: (contact) {
           Navigator.pop(context);
           _showContactImportDialog(contact);
+        },
+        onSelectMultiple: (selectedContacts) {
+          Navigator.pop(context);
+          _showBatchImportDialog(selectedContacts);
         },
       ),
     );
@@ -601,6 +675,199 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  /// 연락처 이름+메모에서 태그 자동 감지
+  static const _tagKeywords = {
+    '폭력': ['폭력', '때림', '주먹', '폭행', '때리'],
+    '먹튀': ['먹튀', '외상', '떼먹', '안냄', '미지급'],
+    '행패': ['행패', '난동', '취객', '행패부림'],
+    '스토커': ['스토커', '스토킹', '집착', '찾아옴'],
+    '블랙': ['진상', '블랙리스트', '출입금지', '출금'],
+  };
+
+  /// 태그 + 매칭 키워드 리턴
+  ({String tag, String keyword})? _autoDetectTag(Contact contact) {
+    final notes = contact.notes.map((n) => n.note).join(' ').toLowerCase();
+    if (notes.isEmpty) return null;
+
+    for (final entry in _tagKeywords.entries) {
+      for (final keyword in entry.value) {
+        if (notes.contains(keyword)) return (tag: entry.key, keyword: keyword);
+      }
+    }
+    return null;
+  }
+
+  bool _hasJinsangHint(Contact contact) {
+    if (contact.notes.isNotEmpty && contact.notes.first.note.trim().isNotEmpty) {
+      return true;
+    }
+    return _autoDetectTag(contact) != null;
+  }
+
+  void _showBatchImportDialog(List<Contact> contacts) {
+    // 자동 분류: 힌트 있는 연락처만 추출
+    final classified = <_ClassifiedContact>[];
+    final skipped = <Contact>[];
+
+    for (final c in contacts) {
+      if (_hasJinsangHint(c)) {
+        final detected = _autoDetectTag(c);
+        final memo = c.notes.isNotEmpty ? c.notes.first.note.trim() : null;
+        classified.add(_ClassifiedContact(
+          contact: c,
+          tag: detected?.tag ?? '블랙',
+          memo: memo,
+          autoDetected: detected != null,
+          matchedKeyword: detected?.keyword,
+        ));
+      } else {
+        skipped.add(c);
+      }
+    }
+
+    if (classified.isEmpty) {
+      // 힌트 있는 연락처가 없으면 수동 모드로 전환
+      _showManualBatchDialog(contacts);
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _BatchClassifyScreen(
+          classified: classified,
+          skipped: skipped,
+          allContacts: contacts,
+          presetTags: presetTags,
+          shopId: _shopId,
+          onComplete: () {
+            _loadTagsFromSupabase();
+          },
+          onManualMode: () {
+            _showManualBatchDialog(contacts);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 힌트 없는 연락처 수동 일괄 등록
+  void _showManualBatchDialog(List<Contact> contacts) {
+    String selectedTag = _selectedTag;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('🚨 ${contacts.length}명 수동 등록'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF252525),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  contacts.map((c) => c.displayName).join(', '),
+                  style: const TextStyle(fontSize: 13, color: Colors.white70),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('전체 적용 태그', style: TextStyle(fontSize: 13, color: Colors.white54)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: presetTags.map((tag) {
+                  final isSelected = selectedTag == tag.name;
+                  return GestureDetector(
+                    onTap: () => setDialogState(() => selectedTag = tag.name),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected ? tag.color.withOpacity(0.25) : const Color(0xFF252525),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? tag.color.withOpacity(0.6) : Colors.white.withOpacity(0.08),
+                        ),
+                      ),
+                      child: Text(
+                        '${tag.emoji} ${tag.name}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isSelected ? Colors.white : Colors.white54,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                int count = 0;
+                for (final contact in contacts) {
+                  final phones = contact.phones.map((p) => p.number).toList();
+                  final noteText = contact.notes.isNotEmpty ? contact.notes.first.note.trim() : null;
+                  for (final phone in phones) {
+                    try {
+                      await SupabaseService.addTag(
+                        shopId: _shopId,
+                        phone: phone,
+                        tag: selectedTag,
+                        memo: noteText?.isNotEmpty == true ? noteText : null,
+                      );
+                      count++;
+                    } catch (_) {}
+                  }
+                }
+                await _loadTagsFromSupabase();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ $count건 등록 완료'),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: const Color(0xFF34C759),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF3B30),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: Text('${contacts.length}명 등록'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _getTagEmojiStatic(String tag) {
+    const map = {
+      '폭력': '👊', '먹튀': '💸', '행패': '🤬',
+      '스토커': '👁️', '블랙': '⛔',
+    };
+    return map[tag] ?? '⚠️';
+  }
+
   Future<void> _addTag() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) {
@@ -695,80 +962,105 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // 헤더
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Column(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF3B30).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Image.asset('assets/logo.png', width: 36, height: 36),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '얘진상',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.5,
-                            ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF3B30).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Text(
-                            '진상 손님 사전 차단 시스템',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white38,
-                            ),
+                          child: Image.asset('assets/logo.png', width: 28, height: 28),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                '얘진상',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              Text(
+                                '진상 손님 사전 차단 시스템',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white38,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        // 아이콘 2개만 헤더에 (프로필 + 공지)
+                        SizedBox(
+                          width: 36, height: 36,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const NoticesScreen()),
+                              );
+                            },
+                            icon: const Icon(Icons.campaign_outlined, color: Colors.white54, size: 22),
+                            tooltip: '공지사항',
+                          ),
+                        ),
+                        SizedBox(
+                          width: 36, height: 36,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                              );
+                            },
+                            icon: const Icon(Icons.person_outline, color: Colors.white54, size: 22),
+                            tooltip: '내 정보',
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const NoticesScreen()),
-                        );
-                      },
-                      icon: const Icon(Icons.campaign_outlined, color: Colors.white54),
-                      tooltip: '공지사항',
-                    ),
-                    IconButton(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const MyTagsScreen()),
-                        );
-                        _loadTagsFromSupabase();
-                      },
-                      icon: const Icon(Icons.list_alt, color: Colors.white54),
-                      tooltip: '태그 관리',
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const ReferralScreen()),
-                        );
-                      },
-                      icon: const Icon(Icons.card_giftcard, color: Color(0xFFFF6B6B)),
-                      tooltip: '추천하기',
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                        );
-                      },
-                      icon: const Icon(Icons.person_outline, color: Colors.white54),
-                      tooltip: '내 정보',
+                    const SizedBox(height: 10),
+                    // 퀵 액션 바
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.list_alt,
+                            label: '태그 관리',
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const MyTagsScreen()),
+                              );
+                              _loadTagsFromSupabase();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.card_giftcard,
+                            label: '추천하기',
+                            color: const Color(0xFFFF6B6B),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ReferralScreen()),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -778,7 +1070,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // 스크리닝 상태
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   padding: const EdgeInsets.all(20),
@@ -797,54 +1089,53 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           : const Color(0xFFFF3B30).withOpacity(0.3),
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: (_screeningEnabled ? const Color(0xFF34C759) : const Color(0xFFFF3B30)).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          _screeningEnabled ? Icons.shield : Icons.shield_outlined,
-                          color: _screeningEnabled ? const Color(0xFF34C759) : const Color(0xFFFF3B30),
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _screeningEnabled ? '보호 활성화' : '보호 꺼짐',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _screeningEnabled
-                                  ? '수신 전화를 실시간 감시 중'
-                                  : '전화 스크리닝을 활성화하세요',
-                              style: const TextStyle(fontSize: 13, color: Colors.white54),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (!_screeningEnabled)
-                        FilledButton(
-                          onPressed: _requestScreeningRole,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFFF3B30),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: GestureDetector(
+                    onTap: _requestScreeningRole,
+                    behavior: HitTestBehavior.opaque,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: (_screeningEnabled ? const Color(0xFF34C759) : const Color(0xFFFF3B30)).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text('활성화', style: TextStyle(fontWeight: FontWeight.w600)),
+                          child: Icon(
+                            _screeningEnabled ? Icons.shield : Icons.shield_outlined,
+                            color: _screeningEnabled ? const Color(0xFF34C759) : const Color(0xFFFF3B30),
+                            size: 26,
+                          ),
                         ),
-                    ],
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _screeningEnabled ? '보호 활성화' : '보호 꺼짐',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _screeningEnabled
+                                    ? '탭하여 기본 전화 앱 재등록'
+                                    : '전화 스크리닝을 활성화하세요',
+                                style: const TextStyle(fontSize: 13, color: Colors.white54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          _screeningEnabled ? Icons.refresh : Icons.arrow_forward_ios,
+                          color: Colors.white38,
+                          size: 18,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -854,7 +1145,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             if (!_overlayEnabled)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -893,7 +1184,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // 진상 등록 섹션
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -971,7 +1262,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // 등록 목록 헤더
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
                 child: Row(
                   children: [
                     const Text(
@@ -1033,7 +1324,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
@@ -1209,6 +1500,555 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 }
 
+class _BatchClassifyScreen extends StatefulWidget {
+  final List<_ClassifiedContact> classified;
+  final List<Contact> skipped;
+  final List<Contact> allContacts;
+  final List<TagOption> presetTags;
+  final String shopId;
+  final VoidCallback onComplete;
+  final VoidCallback onManualMode;
+
+  const _BatchClassifyScreen({
+    required this.classified,
+    required this.skipped,
+    required this.allContacts,
+    required this.presetTags,
+    required this.shopId,
+    required this.onComplete,
+    required this.onManualMode,
+  });
+
+  @override
+  State<_BatchClassifyScreen> createState() => _BatchClassifyScreenState();
+}
+
+class _BatchClassifyScreenState extends State<_BatchClassifyScreen> {
+  late List<_ClassifiedContact> _items;
+  bool _isRegistering = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List.from(widget.classified);
+  }
+
+  static String _getEmoji(String tag) {
+    const map = {'폭력': '👊', '먹튀': '💸', '행패': '🤬', '스토커': '👁️', '블랙': '⛔'};
+    return map[tag] ?? '⚠️';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D0D),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0D0D0D),
+        title: const Text('🤖 자동 분류 결과', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        actions: [
+          if (widget.skipped.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                widget.onManualMode();
+              },
+              child: const Text('전체 수동', style: TextStyle(color: Colors.white54, fontSize: 13)),
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // 요약 바
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                colors: [const Color(0xFF34C759).withOpacity(0.15), const Color(0xFF1A1A1A)],
+              ),
+              border: Border.all(color: const Color(0xFF34C759).withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.auto_awesome, size: 18, color: Color(0xFF34C759)),
+                const SizedBox(width: 10),
+                Text(
+                  '등록 ${_items.length}명',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF34C759)),
+                ),
+                if (widget.skipped.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    '스킵 ${widget.skipped.length}명',
+                    style: const TextStyle(fontSize: 13, color: Colors.white38),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // 분류 목록
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _items.length + (widget.skipped.isNotEmpty ? 1 + widget.skipped.length : 0),
+              itemBuilder: (context, index) {
+                // 등록 대상
+                if (index < _items.length) {
+                  final item = _items[index];
+                  final phone = item.contact.phones.isNotEmpty ? item.contact.phones.first.number : '';
+                  final reason = item.autoDetected
+                      ? '메모에서 "${item.matchedKeyword}" 감지'
+                      : (item.memo != null ? '메모 있음 (키워드 미감지)' : '수동 분류');
+
+                  return Dismissible(
+                    key: Key('classified_${item.contact.id}_$index'),
+                    direction: DismissDirection.endToStart,
+                    onDismissed: (_) {
+                      setState(() {
+                        final removed = _items.removeAt(index);
+                        widget.skipped.add(removed.contact);
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('${item.contact.displayName} → 스킵으로 이동'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          action: SnackBarAction(
+                            label: '되돌리기',
+                            onPressed: () {
+                              setState(() {
+                                widget.skipped.remove(item.contact);
+                                _items.insert(index.clamp(0, _items.length), item);
+                              });
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF3B30).withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('스킵', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          SizedBox(width: 6),
+                          Icon(Icons.arrow_forward, color: Colors.white70, size: 18),
+                        ],
+                      ),
+                    ),
+                    child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A1A),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 이름 + 태그
+                        Row(
+                          children: [
+                            Text(_getEmoji(item.tag), style: const TextStyle(fontSize: 22)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.contact.displayName,
+                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                                  ),
+                                  if (phone.isNotEmpty)
+                                    Text(phone, style: const TextStyle(fontSize: 12, color: Colors.white38)),
+                                ],
+                              ),
+                            ),
+                            // 태그 변경
+                            PopupMenuButton<String>(
+                              initialValue: item.tag,
+                              onSelected: (tag) => setState(() {
+                                _items[index] = _ClassifiedContact(
+                                  contact: item.contact,
+                                  tag: tag,
+                                  memo: item.memo,
+                                  autoDetected: false,
+                                  matchedKeyword: item.matchedKeyword,
+                                );
+                              }),
+                              itemBuilder: (_) => [
+                                for (final t in widget.presetTags)
+                                  PopupMenuItem(value: t.name, child: Text('${t.emoji} ${t.name}')),
+                              ],
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF252525),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(item.tag, style: const TextStyle(fontSize: 13, color: Colors.white70)),
+                                    const Icon(Icons.arrow_drop_down, size: 16, color: Colors.white38),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // 분류 사유
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: item.autoDetected
+                                ? const Color(0xFFFF9500).withOpacity(0.1)
+                                : const Color(0xFF252525),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                item.autoDetected ? Icons.auto_fix_high : Icons.notes,
+                                size: 14,
+                                color: item.autoDetected ? const Color(0xFFFF9500) : Colors.white38,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  reason,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: item.autoDetected ? const Color(0xFFFF9500) : Colors.white38,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // 메모 내용
+                        if (item.memo != null && item.memo!.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '📝 ${item.memo}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFFFF6B6B)),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  );
+                }
+
+                // 스킵 헤더
+                if (index == _items.length) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.skip_next, size: 18, color: Colors.white24),
+                        const SizedBox(width: 8),
+                        Text(
+                          '스킵 — 메모/키워드 없음 (${widget.skipped.length}명)',
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white38),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // 스킵된 연락처
+                final skipIndex = index - _items.length - 1;
+                final skippedContact = widget.skipped[skipIndex];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF151515),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              skippedContact.displayName,
+                              style: const TextStyle(fontSize: 13, color: Colors.white38),
+                            ),
+                            if (skippedContact.phones.isNotEmpty)
+                              Text(
+                                skippedContact.phones.first.number,
+                                style: const TextStyle(fontSize: 11, color: Colors.white12),
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 32, height: 32,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () => _addSkippedContact(skipIndex),
+                          icon: const Icon(Icons.add_circle_outline, size: 20, color: Color(0xFFFF6B6B)),
+                          tooltip: '등록 추가',
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // 하단 등록 버튼
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            decoration: const BoxDecoration(
+              color: Color(0xFF0D0D0D),
+              border: Border(top: BorderSide(color: Color(0xFF252525))),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isRegistering ? null : _registerAll,
+                icon: _isRegistering
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.add, size: 20),
+                label: Text(
+                  _isRegistering ? '등록 중...' : '${_items.length}명 등록',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF3B30),
+                  disabledBackgroundColor: const Color(0xFFFF3B30).withOpacity(0.5),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addSkippedContact(int skipIndex) {
+    final contact = widget.skipped[skipIndex];
+    String selectedTag = '블랙';
+    final memoController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('➕ ${contact.displayName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 전화번호
+              if (contact.phones.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF252525),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    contact.phones.map((p) => p.number).join(', '),
+                    style: const TextStyle(fontSize: 13, color: Colors.white54),
+                  ),
+                ),
+              const SizedBox(height: 14),
+              // 태그
+              const Text('태그', style: TextStyle(fontSize: 13, color: Colors.white54)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: widget.presetTags.map((tag) {
+                  final isSelected = selectedTag == tag.name;
+                  return GestureDetector(
+                    onTap: () => setDialogState(() => selectedTag = tag.name),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected ? tag.color.withOpacity(0.25) : const Color(0xFF252525),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? tag.color.withOpacity(0.6) : Colors.white.withOpacity(0.08),
+                        ),
+                      ),
+                      child: Text(
+                        '${tag.emoji} ${tag.name}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isSelected ? Colors.white : Colors.white54,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              // 메모
+              TextField(
+                controller: memoController,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '메모 (선택)',
+                  hintStyle: const TextStyle(color: Colors.white24),
+                  filled: true,
+                  fillColor: const Color(0xFF252525),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                setState(() {
+                  _items.add(_ClassifiedContact(
+                    contact: contact,
+                    tag: selectedTag,
+                    memo: memoController.text.trim().isEmpty ? null : memoController.text.trim(),
+                    autoDetected: false,
+                    matchedKeyword: null,
+                  ));
+                  widget.skipped.removeAt(skipIndex);
+                });
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF3B30),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('추가'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _registerAll() async {
+    setState(() => _isRegistering = true);
+    int count = 0;
+    for (final item in _items) {
+      final phones = item.contact.phones.map((p) => p.number).toList();
+      for (final phone in phones) {
+        try {
+          await SupabaseService.addTag(
+            shopId: widget.shopId,
+            phone: phone,
+            tag: item.tag,
+            memo: item.memo,
+          );
+          count++;
+        } catch (_) {}
+      }
+    }
+    widget.onComplete();
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ $count건 등록 완료 (${widget.skipped.length}명 스킵)'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF34C759),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+}
+
+class _ClassifiedContact {
+  final Contact contact;
+  final String tag;
+  final String? memo;
+  final bool autoDetected;
+  final String? matchedKeyword; // 어떤 키워드로 매칭됐는지
+
+  _ClassifiedContact({
+    required this.contact,
+    required this.tag,
+    this.memo,
+    this.autoDetected = false,
+    this.matchedKeyword,
+  });
+}
+
+class _QuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color = Colors.white54,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.06)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class JinsangTag {
   final String? id;
   final String phone;
@@ -1236,8 +2076,13 @@ class TagOption {
 class _ContactPickerSheet extends StatefulWidget {
   final List<Contact> contacts;
   final void Function(Contact) onSelect;
+  final void Function(List<Contact>) onSelectMultiple;
 
-  const _ContactPickerSheet({required this.contacts, required this.onSelect});
+  const _ContactPickerSheet({
+    required this.contacts,
+    required this.onSelect,
+    required this.onSelectMultiple,
+  });
 
   @override
   State<_ContactPickerSheet> createState() => _ContactPickerSheetState();
@@ -1246,6 +2091,8 @@ class _ContactPickerSheet extends StatefulWidget {
 class _ContactPickerSheetState extends State<_ContactPickerSheet> {
   final _searchController = TextEditingController();
   List<Contact> _filtered = [];
+  final Set<String> _selectedIds = {};
+  bool _multiMode = false;
 
   @override
   void initState() {
@@ -1269,8 +2116,32 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
     });
   }
 
+  void _toggleSelect(Contact contact) {
+    setState(() {
+      if (_selectedIds.contains(contact.id)) {
+        _selectedIds.remove(contact.id);
+        if (_selectedIds.isEmpty) _multiMode = false;
+      } else {
+        _selectedIds.add(contact.id);
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      if (_selectedIds.length == _filtered.length) {
+        _selectedIds.clear();
+        _multiMode = false;
+      } else {
+        _selectedIds.addAll(_filtered.map((c) => c.id));
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final allSelected = _selectedIds.length == _filtered.length && _filtered.isNotEmpty;
+    
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
       minChildSize: 0.5,
@@ -1315,12 +2186,42 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${_filtered.length}명',
-                      style: const TextStyle(fontSize: 12, color: Colors.white38),
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        '${_filtered.length}명',
+                        style: const TextStyle(fontSize: 12, color: Colors.white38),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _multiMode = !_multiMode);
+                          if (!_multiMode) _selectedIds.clear();
+                        },
+                        child: Text(
+                          _multiMode ? '취소' : '선택',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _multiMode ? const Color(0xFFFF3B30) : Colors.white54,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (_multiMode) ...[
+                        const SizedBox(width: 16),
+                        GestureDetector(
+                          onTap: _selectAll,
+                          child: Text(
+                            allSelected ? '전체 해제' : '전체 선택',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFFFF6B6B),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -1334,15 +2235,22 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                   final contact = _filtered[index];
                   final phone = contact.phones.isNotEmpty ? contact.phones.first.number : '번호 없음';
                   final hasNote = contact.notes.isNotEmpty && contact.notes.first.note.isNotEmpty;
+                  final isSelected = _selectedIds.contains(contact.id);
 
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: const Color(0xFF333333),
-                      child: Text(
-                        contact.displayName.isNotEmpty ? contact.displayName[0] : '?',
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ),
+                    leading: _multiMode
+                        ? Icon(
+                            isSelected ? Icons.check_circle : Icons.circle_outlined,
+                            color: isSelected ? const Color(0xFFFF3B30) : Colors.white38,
+                            size: 24,
+                          )
+                        : CircleAvatar(
+                            backgroundColor: const Color(0xFF333333),
+                            child: Text(
+                              contact.displayName.isNotEmpty ? contact.displayName[0] : '?',
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          ),
                     title: Text(
                       contact.displayName,
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
@@ -1360,7 +2268,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                           ),
                       ],
                     ),
-                    trailing: hasNote
+                    trailing: !_multiMode && hasNote
                         ? Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
@@ -1373,11 +2281,49 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                             ),
                           )
                         : null,
-                    onTap: () => widget.onSelect(contact),
+                    onTap: () {
+                      if (_multiMode) {
+                        _toggleSelect(contact);
+                      } else {
+                        widget.onSelect(contact);
+                      }
+                    },
+                    onLongPress: () {
+                      if (!_multiMode) {
+                        setState(() => _multiMode = true);
+                        _toggleSelect(contact);
+                      }
+                    },
                   );
                 },
               ),
             ),
+            // 선택 완료 버튼
+            if (_multiMode && _selectedIds.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      final selected = widget.contacts
+                          .where((c) => _selectedIds.contains(c.id))
+                          .toList();
+                      widget.onSelectMultiple(selected);
+                    },
+                    icon: const Icon(Icons.add, size: 20),
+                    label: Text(
+                      '${_selectedIds.length}명 등록',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF3B30),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },

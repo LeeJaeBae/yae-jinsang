@@ -109,10 +109,36 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       }
 
-      // 추천코드 적용
+      // 추천코드 적용 (중복 방지)
       final referralCode = _referralController.text.trim();
       if (referralCode.isNotEmpty && user != null) {
-        await SupabaseService.applyReferral(referralCode, user.id);
+        final alreadyReferred = await SupabaseService.hasBeenReferred(user.id);
+        if (alreadyReferred) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ 이미 추천코드를 사용하셨습니다.'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: Color(0xFFFF3B30),
+              ),
+            );
+          }
+        } else {
+          final result = await SupabaseService.applyReferral(referralCode, user.id);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result['success'] == true
+                    ? '✅ 추천코드가 적용되었습니다! 첫 달 50% 할인!'
+                    : '❌ 추천코드 적용 실패: ${result['error'] ?? '유효하지 않은 코드'}'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: result['success'] == true
+                    ? const Color(0xFF34C759)
+                    : const Color(0xFFFF3B30),
+              ),
+            );
+          }
+        }
       }
 
       setState(() => _loading = false);

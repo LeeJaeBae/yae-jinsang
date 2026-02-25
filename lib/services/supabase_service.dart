@@ -98,6 +98,16 @@ class SupabaseService {
     return (response as List).length;
   }
 
+  /// 추천 받은 적 있는지 확인 (중복 방지)
+  static Future<bool> hasBeenReferred(String shopId) async {
+    final response = await client
+        .from('referrals')
+        .select('id')
+        .eq('referred_shop_id', shopId)
+        .maybeSingle();
+    return response != null;
+  }
+
   /// 조회 로그 기록
   static Future<void> logLookup({
     required String shopId,

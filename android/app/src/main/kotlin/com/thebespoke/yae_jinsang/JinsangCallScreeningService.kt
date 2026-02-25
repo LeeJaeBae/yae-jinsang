@@ -45,7 +45,7 @@ class JinsangCallScreeningService : CallScreeningService() {
                     showNotification(number, result)
                 } else {
                     Log.d("YaeJinsang", "✅ 미등록 번호")
-                    showWarningOverlay(number, emptyList(), isJinsang = false)
+                    showWarningOverlay(number, emptyList<JinsangResult>(), isJinsang = false)
                 }
             } catch (e: Exception) {
                 Log.e("YaeJinsang", "조회 실패: ${e.message}")
@@ -71,7 +71,14 @@ class JinsangCallScreeningService : CallScreeningService() {
         return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
-    private fun lookupJinsang(hash: String): List<Pair<String, Int>> {
+    data class JinsangResult(
+        val tag: String,
+        val count: Int,
+        val region: String?,
+        val category: String?
+    )
+
+    private fun lookupJinsang(hash: String): List<JinsangResult> {
         val url = URL("$supabaseUrl/rest/v1/rpc/lookup_jinsang")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
@@ -85,12 +92,17 @@ class JinsangCallScreeningService : CallScreeningService() {
         val response = conn.inputStream.bufferedReader().readText()
         conn.disconnect()
 
-        val results = mutableListOf<Pair<String, Int>>()
+        val results = mutableListOf<JinsangResult>()
         try {
             val arr = JSONArray(response)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                results.add(Pair(obj.getString("tag"), obj.getInt("count")))
+                results.add(JinsangResult(
+                    tag = obj.getString("tag"),
+                    count = obj.getInt("count"),
+                    region = obj.optString("region", null),
+                    category = obj.optString("category", null)
+                ))
             }
         } catch (e: Exception) {
             Log.e("YaeJinsang", "JSON 파싱 실패: ${e.message}")
@@ -110,7 +122,7 @@ class JinsangCallScreeningService : CallScreeningService() {
         }
     }
 
-    private fun showWarningOverlay(number: String, tags: List<Pair<String, Int>>, isJinsang: Boolean = true) {
+    private fun showWarningOverlay(number: String, tags: List<JinsangResult>, isJinsang: Boolean = true) {
         if (!Settings.canDrawOverlays(this)) {
             Log.w("YaeJinsang", "오버레이 권한 없음")
             return
@@ -120,20 +132,37 @@ class JinsangCallScreeningService : CallScreeningService() {
         handler.post {
             val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
+            val displayMetrics = resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
+                (screenWidth * 0.88).toInt(),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                 PixelFormat.TRANSLUCENT
             )
-            params.gravity = Gravity.TOP
+            params.gravity = Gravity.CENTER
+
+            // 라운드 카드 배경
+            val bgDrawable = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 40f
+                if (isJinsang) {
+                    setColor(0xF01A1A1A.toInt())
+                    setStroke(4, 0xFFFF3B30.toInt())
+                } else {
+                    setColor(0xF01A1A1A.toInt())
+                    setStroke(3, 0xFF34C759.toInt())
+                }
+            }
 
             val layout = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(48, 80, 48, 48)
-                setBackgroundColor(if (isJinsang) 0xEE1A1A1A.toInt() else 0xDD1A1A1A.toInt())
+                setPadding(56, 56, 56, 48)
+                background = bgDrawable
+                elevation = 24f
             }
 
             // 번호 (마스킹)
@@ -161,8 +190,8 @@ class JinsangCallScreeningService : CallScreeningService() {
                 }
                 layout.addView(numberView)
 
-                val totalCount = tags.sumOf { it.second }
-                val tagSummary = tags.joinToString(", ") { "${it.first} ${it.second}건" }
+                val totalCount = tags.sumOf { it.count }
+                val tagSummary = tags.joinToString(", ") { "${it.tag} ${it.count}건" }
 
                 val infoView = TextView(this).apply {
                     text = "⚠️ ${totalCount}개 업소에서 주의 등록\n$tagSummary"
@@ -173,6 +202,22 @@ class JinsangCallScreeningService : CallScreeningService() {
                     lineHeight = 56
                 }
                 layout.addView(infoView)
+
+                // 지역+업종 정보
+                val locationInfo = tags
+                    .filter { it.region != null && it.region != "미설정" }
+                    .map { "${it.region} · ${it.category ?: "기타"}" }
+                    .distinct()
+                if (locationInfo.isNotEmpty()) {
+                    val locationView = TextView(this).apply {
+                        text = "📍 ${locationInfo.joinToString(", ")}"
+                        textSize = 13f
+                        setTextColor(0xAAFFFFFF.toInt())
+                        gravity = Gravity.CENTER
+                        setPadding(0, 0, 0, 16)
+                    }
+                    layout.addView(locationView)
+                }
 
                 val hintView = TextView(this).apply {
                     text = "응대에 주의하세요"
@@ -218,13 +263,17 @@ class JinsangCallScreeningService : CallScreeningService() {
                 gravity = Gravity.CENTER
             }
 
+            val registerBtnBg = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 24f
+                setColor(0xFFFF3B30.toInt())
+            }
             val registerBtn = TextView(this).apply {
                 text = if (isJinsang) "✏️ 태그 추가" else "🚨 진상 등록"
                 textSize = 15f
                 setTextColor(0xFFFFFFFF.toInt())
                 gravity = Gravity.CENTER
-                setPadding(48, 24, 48, 24)
-                setBackgroundColor(0xFFFF3B30.toInt())
+                setPadding(56, 28, 56, 28)
+                background = registerBtnBg
                 setOnClickListener {
                     openAppWithNumber(number)
                     try { windowManager.removeView(layout) } catch (_: Exception) {}
@@ -232,12 +281,22 @@ class JinsangCallScreeningService : CallScreeningService() {
             }
             btnLayout.addView(registerBtn)
 
+            val dismissBtnBg = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 24f
+                setColor(0xFF333333.toInt())
+            }
             val dismissBtn = TextView(this).apply {
                 text = "닫기"
                 textSize = 14f
-                setTextColor(0x99FFFFFF.toInt())
+                setTextColor(0xAAFFFFFF.toInt())
                 gravity = Gravity.CENTER
-                setPadding(36, 24, 36, 24)
+                setPadding(40, 28, 40, 28)
+                background = dismissBtnBg
+                val marginParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = 20 }
+                layoutParams = marginParams
                 setOnClickListener {
                     try { windowManager.removeView(layout) } catch (_: Exception) {}
                 }
@@ -260,7 +319,7 @@ class JinsangCallScreeningService : CallScreeningService() {
         }
     }
 
-    private fun showNotification(number: String, tags: List<Pair<String, Int>>) {
+    private fun showNotification(number: String, tags: List<JinsangResult>) {
         val channelId = "jinsang_warning"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -277,16 +336,27 @@ class JinsangCallScreeningService : CallScreeningService() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        val totalCount = tags.sumOf { it.second }
-        val tagSummary = tags.joinToString(", ") { "${it.first} ${it.second}건" }
+        val totalCount = tags.sumOf { it.count }
+        val tagSummary = tags.joinToString(", ") { "${it.tag} ${it.count}건" }
+        val locationInfo = tags
+            .filter { it.region != null && it.region != "미설정" }
+            .map { "${it.region}·${it.category ?: "기타"}" }
+            .distinct()
+            .joinToString(", ")
         val masked = if (number.length > 4) {
             "${"*".repeat(number.length - 4)}${number.takeLast(4)}"
         } else number
 
+        val contentText = if (locationInfo.isNotEmpty()) {
+            "${totalCount}개 업소 주의: $tagSummary ($locationInfo)"
+        } else {
+            "${totalCount}개 업소 주의: $tagSummary"
+        }
+
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("🚨 진상 감지 — $masked")
-            .setContentText("${totalCount}개 업소 주의: $tagSummary")
+            .setContentText(contentText)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setVibrate(longArrayOf(0, 500, 200, 500))

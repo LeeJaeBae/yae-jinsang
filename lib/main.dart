@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -187,8 +189,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   final List<JinsangTag> _tags = [];
   final _phoneController = TextEditingController();
   final _customTagController = TextEditingController();
+  final _searchController = TextEditingController();
   String _selectedTag = '폭력';
   bool _isCustomTag = false;
+  bool _searching = false;
+  Map<String, dynamic>? _searchResult; // null=미검색, {'found': bool, 'tags': [...]}
+
 
   final List<TagOption> presetTags = [
     TagOption('폭력', '👊', Color(0xFFFF3B30)),
@@ -241,6 +247,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     await prefs.setString('shop_id', _shopId);
   }
 
+  Future<void> _searchJinsang() async {
+    final phone = _searchController.text.trim().replaceAll('-', '').replaceAll(' ', '');
+    if (phone.isEmpty) return;
+
+    setState(() { _searching = true; _searchResult = null; });
+
+    try {
+      // SHA-256 해시
+      final bytes = utf8.encode(phone);
+      final hash = sha256.convert(bytes).toString();
+
+      final results = await Supabase.instance.client
+          .rpc('lookup_jinsang', params: {'hash': hash});
+
+      if (results != null && (results as List).isNotEmpty) {
+        setState(() {
+          _searchResult = {
+            'found': true,
+            'tags': results.map((r) => ({
+                'tag': r['tag'],
+                'shop_name': r['shop_name'],
+                'created_at': r['created_at'],
+              })).toList(),
+          };
+        });
+      } else {
+        setState(() {
+          _searchResult = {'found': false, 'tags': []};
+        });
+      }
+    } catch (e) {
+      print('검색 실패: $e');
+      setState(() {
+        _searchResult = {'found': false, 'tags': [], 'error': e.toString()};
+      });
+    } finally {
+      setState(() => _searching = false);
+    }
+  }
+
   Future<void> _checkHomeTutorial() async {
     final prefs = await SharedPreferences.getInstance();
     final done = prefs.getBool('home_tutorial_done') ?? false;
@@ -264,6 +310,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _phoneController.dispose();
+    _searchController.dispose();
     _customTagController.dispose();
     super.dispose();
   }
@@ -1061,7 +1108,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                                 ),
                               ),
                               Text(
-                                'v1.1.0',
+                                'v1.1.1',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: Colors.white24,
@@ -1255,6 +1302,112 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                   ),
                 ),
               ),
+
+            // 진상 검색 섹션
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔍 진상 조회',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            keyboardType: TextInputType.phone,
+                            style: const TextStyle(fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText: '전화번호 입력',
+                              hintStyle: const TextStyle(color: Colors.white24),
+                              prefixIcon: const Icon(Icons.search, color: Colors.white24, size: 20),
+                              filled: true,
+                              fillColor: const Color(0xFF1A1A1A),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          height: 48,
+                          child: FilledButton(
+                            onPressed: _searching ? null : _searchJinsang,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF2A2A2A),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: _searching
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54))
+                                : const Text('조회', style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_searchResult != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: _searchResult!['found'] == true
+                              ? const Color(0xFFFF3B30).withOpacity(0.1)
+                              : const Color(0xFF34C759).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _searchResult!['found'] == true
+                                ? const Color(0xFFFF3B30).withOpacity(0.3)
+                                : const Color(0xFF34C759).withOpacity(0.3),
+                          ),
+                        ),
+                        child: _searchResult!['found'] == true
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('🚨 진상 등록 이력 있음', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFFF3B30), fontSize: 15)),
+                                  const SizedBox(height: 8),
+                                  ...(_searchResult!['tags'] as List).map((t) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFF3B30).withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(t['tag'], style: const TextStyle(fontSize: 12, color: Color(0xFFFF6B6B))),
+                                        ),
+                                        if (t['shop_name'] != null) ...[
+                                          const SizedBox(width: 8),
+                                          Text('🏪 ${t['shop_name']}', style: const TextStyle(fontSize: 12, color: Color(0xFFFF9500))),
+                                        ],
+                                      ],
+                                    ),
+                                  )),
+                                ],
+                              )
+                            : const Row(
+                                children: [
+                                  Text('✅', style: TextStyle(fontSize: 18)),
+                                  SizedBox(width: 8),
+                                  Text('등록된 진상 정보 없음', style: TextStyle(color: Color(0xFF34C759), fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
 
             // 진상 등록 섹션
             SliverToBoxAdapter(

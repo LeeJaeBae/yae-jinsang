@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "33333095999",
+    "project_id": "jinsang-8c485",
+    "storage_bucket": "jinsang-8c485.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:33333095999:android:4df4a6d6be7d117a3ed28a",
+        "android_client_info": {
+          "package_name": "com.thebespoke.yae_jinsang"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAteJsj6zpyYzHw2lf1CTx2bP72KHs4HgQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

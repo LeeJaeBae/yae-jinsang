@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class PaywallScreen extends StatefulWidget {
@@ -21,9 +22,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Future<void> _checkReferral() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      final referred = await SupabaseService.hasBeenReferred(user.id);
+    final fbUser = fb.FirebaseAuth.instance.currentUser;
+    if (fbUser != null) {
+      final referred = await SupabaseService.hasBeenReferred(fbUser.uid);
       if (mounted) {
         setState(() {
           _isReferred = referred;
@@ -152,7 +153,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 // 로그아웃
                 TextButton(
                   onPressed: () async {
-                    await Supabase.instance.client.auth.signOut();
+                    await fb.FirebaseAuth.instance.signOut();
                   },
                   child: const Text(
                     '로그아웃',

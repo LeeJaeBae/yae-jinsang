@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class ReferralScreen extends StatefulWidget {
@@ -15,7 +16,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
   int _referralCount = 0;
   bool _loading = true;
 
-  String get _userId => Supabase.instance.client.auth.currentUser!.id;
+  String get _userId => fb.FirebaseAuth.instance.currentUser!.uid;
 
   @override
   void initState() {

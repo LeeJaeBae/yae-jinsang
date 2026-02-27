@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'onboarding_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -19,8 +20,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _showName = false;
   Map<String, dynamic>? _shopData;
 
-  String get _shopId => Supabase.instance.client.auth.currentUser!.id;
-  String? get _phone => Supabase.instance.client.auth.currentUser?.phone;
+  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
+  String? get _phone => fb.FirebaseAuth.instance.currentUser?.phoneNumber;
 
   static const regions = [
     '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
@@ -150,7 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirmed == true) {
-      await Supabase.instance.client.auth.signOut();
+      await fb.FirebaseAuth.instance.signOut();
     }
   }
 

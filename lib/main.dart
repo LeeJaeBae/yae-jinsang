@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'services/supabase_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/paywall_screen.dart';
@@ -16,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   await SupabaseService.init();
   runApp(const YaeJinsangApp());
 }
@@ -103,22 +106,26 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   Future<void> _checkSubscription() async {
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) {
+    final fbUser = fb.FirebaseAuth.instance.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    final shopId = fbUser?.uid ?? prefs.getString('flutter.firebase_uid');
+    print('🔍 구독체크 shopId=$shopId fbUser=${fbUser?.uid}');
+    if (shopId == null) {
+      print('🔍 shopId null → 미로그인');
       if (mounted) setState(() { _hasSubscription = null; _loading = false; });
       return;
     }
 
     // Kotlin CallScreeningService에서 구독 체크용
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('supabase_user_id', session.user.id);
+    await prefs.setString('flutter.shop_id', shopId);
 
     try {
       final shop = await Supabase.instance.client
           .from('shops')
           .select('subscription_until, is_active')
-          .eq('id', session.user.id)
+          .eq('id', shopId)
           .maybeSingle();
+      print('🔍 shop 결과: $shop');
 
       final isActive = shop?['is_active'] == true;
       final until = shop?['subscription_until'];
@@ -128,17 +135,17 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
       if (mounted) setState(() { _hasSubscription = valid; _loading = false; });
     } catch (e) {
-      debugPrint('구독 체크 실패: $e');
+      print('❌ 구독 체크 실패: $e');
       if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<AuthState>(
-      stream: Supabase.instance.client.auth.onAuthStateChange,
+    return StreamBuilder<fb.User?>(
+      stream: fb.FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        final session = Supabase.instance.client.auth.currentSession;
+        final fbUser = fb.FirebaseAuth.instance.currentUser;
 
         // 온보딩 (로그인 전에 보여줌)
         if (_onboardingDone == false) {
@@ -147,7 +154,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           });
         }
 
-        if (session == null) return const AuthScreen();
+        if (fbUser == null) return const AuthScreen();
 
         if (_loading) {
           return const Scaffold(
@@ -191,7 +198,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     TagOption('블랙', '⛔', Color(0xFF000000)),
   ];
 
-  String get _shopId => Supabase.instance.client.auth.currentUser!.id;
+  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
 
   bool _showHomeTutorial = false;
   int _tutorialStep = 0;

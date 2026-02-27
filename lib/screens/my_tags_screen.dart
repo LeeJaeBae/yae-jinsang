@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class MyTagsScreen extends StatefulWidget {
@@ -16,7 +17,7 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
   final _searchController = TextEditingController();
   String _filterTag = '전체';
 
-  String get _shopId => Supabase.instance.client.auth.currentUser!.id;
+  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
 
   static const tagEmojis = {
     '폭력': '👊',

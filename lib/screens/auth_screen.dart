@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/supabase_service.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -17,6 +19,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _otpSent = false;
   bool _loading = false;
   String? _error;
+  String? _verificationId;
 
   SupabaseClient get supabase => Supabase.instance.client;
 
@@ -27,7 +30,6 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // 한국 번호 포맷
     String formatted = phone;
     if (phone.startsWith('010')) {
       formatted = '+82${phone.substring(1)}';
@@ -41,33 +43,53 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     try {
-      await supabase.auth.signInWithOtp(phone: formatted);
-      setState(() {
-        _otpSent = true;
-        _loading = false;
-      });
+      await fb.FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: formatted,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (fb.PhoneAuthCredential credential) async {
+          // 자동 인증 (Android SMS 자동 읽기)
+          await _signInWithCredential(credential);
+        },
+        verificationFailed: (fb.FirebaseAuthException e) {
+          if (mounted) {
+            setState(() {
+              _error = '인증 실패: ${e.message}';
+              _loading = false;
+            });
+          }
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (mounted) {
+            setState(() {
+              _verificationId = verificationId;
+              _otpSent = true;
+              _loading = false;
+            });
+          }
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          _verificationId = verificationId;
+        },
+      );
     } catch (e) {
-      setState(() {
-        _error = 'OTP 발송 실패: $e';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = 'OTP 발송 실패: $e';
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _verifyOtp() async {
-    final phone = _phoneController.text.trim();
     final otp = _otpController.text.trim();
-
     if (otp.isEmpty) {
       setState(() => _error = '인증번호를 입력하세요');
       return;
     }
-
-    String formatted = phone;
-    if (phone.startsWith('010')) {
-      formatted = '+82${phone.substring(1)}';
-    } else if (!phone.startsWith('+')) {
-      formatted = '+82$phone';
+    if (_verificationId == null) {
+      setState(() => _error = '인증 세션이 만료되었습니다. 다시 시도하세요.');
+      return;
     }
 
     setState(() {
@@ -76,43 +98,86 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     try {
-      await supabase.auth.verifyOTP(
-        phone: formatted,
-        token: otp,
-        type: OtpType.sms,
+      final credential = fb.PhoneAuthProvider.credential(
+        verificationId: _verificationId!,
+        smsCode: otp,
       );
+      await _signInWithCredential(credential);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = '인증 실패: $e';
+          _loading = false;
+        });
+      }
+    }
+  }
 
-      // 인증 성공 → shops 테이블에 업소 등록 (없으면)
-      final user = supabase.auth.currentUser;
-      if (user != null) {
-        final existing = await supabase
-            .from('shops')
-            .select('id')
-            .eq('id', user.id)
-            .maybeSingle();
+  Future<void> _signInWithCredential(fb.PhoneAuthCredential credential) async {
+    try {
+      final result = await fb.FirebaseAuth.instance.signInWithCredential(credential);
+      final fbUser = result.user;
+      if (fbUser == null) throw Exception('Firebase 인증 실패');
 
-        if (existing == null) {
-          final name = _nameController.text.trim();
-          if (name.isEmpty) {
+      final phone = fbUser.phoneNumber ?? _phoneController.text.trim();
+      String formatted = phone;
+      if (phone.startsWith('010')) {
+        formatted = '+82${phone.substring(1)}';
+      } else if (!phone.startsWith('+')) {
+        formatted = '+82$phone';
+      }
+
+      // Firebase UID로 Supabase shops 직접 관리 (Supabase Auth 사용 안 함)
+      final shopId = fbUser.uid;
+
+      // SharedPreferences에 shop_id 저장
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('flutter.shop_id', shopId);
+      await prefs.setString('flutter.firebase_uid', shopId);
+      await prefs.setString('flutter.owner_phone', formatted);
+
+      // shops 테이블에 업소 등록 (없으면)
+      final existing = await supabase
+          .from('shops')
+          .select('id')
+          .eq('id', shopId)
+          .maybeSingle();
+
+      if (existing == null) {
+        final name = _nameController.text.trim();
+        if (name.isEmpty) {
+          if (mounted) {
             setState(() {
               _loading = false;
               _error = '업소명을 입력하세요';
             });
-            return;
           }
+          return;
+        }
+        try {
           await supabase.from('shops').insert({
-            'id': user.id,
+            'id': shopId,
             'name': name,
             'owner_phone': formatted,
-            'password_hash': '-', // phone auth라 불필요
+            'password_hash': '-',
           });
+          debugPrint('✅ Shop inserted: $shopId / $name / $formatted');
+        } catch (e) {
+          debugPrint('❌ Shop insert 실패: $e');
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = '업소 등록 실패: $e';
+            });
+          }
+          return;
         }
       }
 
-      // 추천코드 적용 (중복 방지)
+      // 추천코드 적용
       final referralCode = _referralController.text.trim();
-      if (referralCode.isNotEmpty && user != null) {
-        final alreadyReferred = await SupabaseService.hasBeenReferred(user.id);
+      if (referralCode.isNotEmpty) {
+        final alreadyReferred = await SupabaseService.hasBeenReferred(shopId);
         if (alreadyReferred) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -124,15 +189,15 @@ class _AuthScreenState extends State<AuthScreen> {
             );
           }
         } else {
-          final result = await SupabaseService.applyReferral(referralCode, user.id);
+          final applyResult = await SupabaseService.applyReferral(referralCode, shopId);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(result['success'] == true
+                content: Text(applyResult['success'] == true
                     ? '✅ 추천코드가 적용되었습니다! 첫 달 50% 할인!'
-                    : '❌ 추천코드 적용 실패: ${result['error'] ?? '유효하지 않은 코드'}'),
+                    : '❌ 추천코드 적용 실패: ${applyResult['error'] ?? '유효하지 않은 코드'}'),
                 behavior: SnackBarBehavior.floating,
-                backgroundColor: result['success'] == true
+                backgroundColor: applyResult['success'] == true
                     ? const Color(0xFF34C759)
                     : const Color(0xFFFF3B30),
               ),
@@ -142,11 +207,10 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       if (mounted) setState(() => _loading = false);
-      // 인증 완료 → main.dart에서 상태 감지
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = '인증 실패: $e';
+          _error = '로그인 실패: $e';
           _loading = false;
         });
       }
@@ -273,7 +337,10 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: 8),
                   TextButton(
                     onPressed: _loading ? null : () {
-                      setState(() => _otpSent = false);
+                      setState(() {
+                        _otpSent = false;
+                        _verificationId = null;
+                      });
                       _otpController.clear();
                     },
                     child: const Text(

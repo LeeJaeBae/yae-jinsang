@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'onboarding_screen.dart';
@@ -20,6 +21,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? _shopData;
 
   String _shopId = '';
+
+  Future<String> _getVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    return info.version;
+  }
 
   Future<void> _loadShopId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -537,9 +543,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // 버전 정보
                   Center(
-                    child: Text(
-                      '얘진상 v1.1.0',
-                      style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.15)),
+                    child: FutureBuilder<String>(
+                      future: _getVersion(),
+                      builder: (ctx, snap) => Text(
+                        '얘진상 v${snap.data ?? '...'}',
+                        style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.15)),
+                      ),
                     ),
                   ),
 

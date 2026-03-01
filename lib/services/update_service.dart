@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateService {
-  static const _currentVersion = '1.4.0';
   static const _repo = 'LeeJaeBae/yae-jinsang';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
   static const _downloadUrl = 'https://github.com/$_repo/releases/latest/download/app-release.apk';
@@ -12,6 +12,9 @@ class UpdateService {
   /// 최신 버전 확인, 업데이트 있으면 다이얼로그 표시
   static Future<void> checkForUpdate(BuildContext context) async {
     try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+
       final response = await http.get(
         Uri.parse(_apiUrl),
         headers: {'Accept': 'application/vnd.github.v3+json'},
@@ -23,7 +26,7 @@ class UpdateService {
       final latestTag = (data['tag_name'] as String?)?.replaceFirst('v', '') ?? '';
 
       if (latestTag.isEmpty) return;
-      if (!_isNewerVersion(latestTag, _currentVersion)) return;
+      if (!_isNewerVersion(latestTag, currentVersion)) return;
 
       if (!context.mounted) return;
 
@@ -39,7 +42,7 @@ class UpdateService {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'v$_currentVersion → v$latestTag',
+                'v$currentVersion → v$latestTag',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -81,7 +84,6 @@ class UpdateService {
                 try {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 } catch (_) {
-                  // fallback: 릴리즈 페이지로
                   final pageUri = Uri.parse('https://github.com/$_repo/releases/latest');
                   await launchUrl(pageUri, mode: LaunchMode.externalApplication);
                 }
@@ -98,6 +100,12 @@ class UpdateService {
     } catch (e) {
       debugPrint('업데이트 확인 실패: $e');
     }
+  }
+
+  /// 현재 앱 버전 가져오기
+  static Future<String> getCurrentVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    return packageInfo.version;
   }
 
   /// 버전 비교 (semver)

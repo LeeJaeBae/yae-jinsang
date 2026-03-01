@@ -108,18 +108,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   Future<void> _checkSubscription() async {
-    final fbUser = fb.FirebaseAuth.instance.currentUser;
     final prefs = await SharedPreferences.getInstance();
-    final shopId = fbUser?.uid ?? prefs.getString('flutter.firebase_uid');
-    print('🔍 구독체크 shopId=$shopId fbUser=${fbUser?.uid}');
-    if (shopId == null) {
-      print('🔍 shopId null → 미로그인');
+    final loggedIn = prefs.getBool('flutter.logged_in') ?? false;
+    final shopId = prefs.getString('flutter.shop_id');
+    print('🔍 구독체크 shopId=$shopId loggedIn=$loggedIn');
+    if (!loggedIn || shopId == null) {
+      print('🔍 미로그인');
       if (mounted) setState(() { _hasSubscription = null; _loading = false; });
       return;
     }
-
-    // Kotlin CallScreeningService에서 구독 체크용
-    await prefs.setString('flutter.shop_id', shopId);
 
     try {
       final shop = await Supabase.instance.client
@@ -142,13 +139,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     }
   }
 
+  bool get _isLoggedIn {
+    // sync check — _checkSubscription sets _hasSubscription to null when not logged in
+    return _hasSubscription != null || _loading;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<fb.User?>(
-      stream: fb.FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        final fbUser = fb.FirebaseAuth.instance.currentUser;
-
+    return Builder(
+      builder: (context) {
         // 온보딩 (로그인 전에 보여줌)
         if (_onboardingDone == false) {
           return OnboardingScreen(onComplete: () {
@@ -156,14 +155,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           });
         }
 
-        if (fbUser == null) return const AuthScreen();
-
         if (_loading) {
           return const Scaffold(
             backgroundColor: Color(0xFF0D0D0D),
             body: Center(child: CircularProgressIndicator(color: Color(0xFFFF3B30))),
           );
         }
+
+        // 미로그인
+        if (_hasSubscription == null) return const AuthScreen();
 
         if (_hasSubscription == true) return _homePage;
         return const PaywallScreen();
@@ -204,7 +204,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     TagOption('블랙', '⛔', Color(0xFF000000)),
   ];
 
-  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
+  String _shopId = '';
+
+  Future<void> _loadShopId() async {
+    final prefs = await SharedPreferences.getInstance();
+    _shopId = prefs.getString('flutter.shop_id') ?? '';
+  }
 
   bool _showHomeTutorial = false;
   int _tutorialStep = 0;
@@ -222,6 +227,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadShopId();
     _listenForRegisterPhone();
     _loadTagsFromSupabase();
     _checkPendingPhone();

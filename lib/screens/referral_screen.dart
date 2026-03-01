@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class ReferralScreen extends StatefulWidget {
@@ -18,11 +18,17 @@ class _ReferralScreenState extends State<ReferralScreen> {
   final _promoController = TextEditingController();
   bool _applyingPromo = false;
 
-  String get _userId => fb.FirebaseAuth.instance.currentUser!.uid;
+  String _userId = '';
 
   @override
   void initState() {
     super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _userId = prefs.getString('flutter.shop_id') ?? '';
     _loadData();
   }
 

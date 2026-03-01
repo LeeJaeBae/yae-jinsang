@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class MyTagsScreen extends StatefulWidget {
@@ -17,7 +17,7 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
   final _searchController = TextEditingController();
   String _filterTag = '전체';
 
-  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
+  String _shopId = '';
 
   static const tagEmojis = {
     '폭력': '👊',
@@ -38,6 +38,12 @@ class _MyTagsScreenState extends State<MyTagsScreen> {
   @override
   void initState() {
     super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _shopId = prefs.getString('flutter.shop_id') ?? '';
     _loadTags();
   }
 

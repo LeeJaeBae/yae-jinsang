@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
 
 class PaywallScreen extends StatefulWidget {
@@ -24,9 +24,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Future<void> _checkReferral() async {
-    final fbUser = fb.FirebaseAuth.instance.currentUser;
-    if (fbUser != null) {
-      final referred = await SupabaseService.hasBeenReferred(fbUser.uid);
+    final prefs = await SharedPreferences.getInstance();
+    final shopId = prefs.getString('flutter.shop_id');
+    if (shopId != null) {
+      final referred = await SupabaseService.hasBeenReferred(shopId);
       if (mounted) {
         setState(() {
           _isReferred = referred;
@@ -155,7 +156,13 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 // 로그아웃
                 TextButton(
                   onPressed: () async {
-                    await fb.FirebaseAuth.instance.signOut();
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.remove('flutter.shop_id');
+                    await prefs.remove('flutter.shop_name');
+                    await prefs.remove('flutter.logged_in');
+                    if (context.mounted) {
+                      Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+                    }
                   },
                   child: const Text(
                     '로그아웃',
@@ -340,8 +347,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Future<void> _requestPaymentConfirm(BuildContext context, String depositorName) async {
-    final fbUser = fb.FirebaseAuth.instance.currentUser;
-    if (fbUser == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final shopId = prefs.getString('flutter.shop_id');
+    if (shopId == null) return;
 
     final price = _isReferred ? 29000 : 49000;
 
@@ -350,7 +358,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
         Uri.parse('https://jinsang.thebespoke.team/api/payment-request'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'shop_id': fbUser.uid,
+          'shop_id': shopId,
           'amount': price,
           'depositor_name': depositorName.isEmpty ? '미입력' : depositorName,
           'plan': 'monthly',

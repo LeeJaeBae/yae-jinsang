@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'onboarding_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -20,8 +19,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _showName = false;
   Map<String, dynamic>? _shopData;
 
-  String get _shopId => fb.FirebaseAuth.instance.currentUser!.uid;
-  String? get _phone => fb.FirebaseAuth.instance.currentUser?.phoneNumber;
+  String _shopId = '';
+
+  Future<void> _loadShopId() async {
+    final prefs = await SharedPreferences.getInstance();
+    _shopId = prefs.getString('flutter.shop_id') ?? '';
+  }
 
   static const regions = [
     '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
@@ -36,7 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadShopId().then((_) => _loadProfile());
   }
 
   @override
@@ -157,7 +160,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirmed == true) {
-      await fb.FirebaseAuth.instance.signOut();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('flutter.shop_id');
+      await prefs.remove('flutter.shop_name');
+      await prefs.remove('flutter.logged_in');
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+      }
     }
   }
 
@@ -264,7 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Icon(Icons.phone, size: 18, color: Colors.white38),
                         const SizedBox(width: 10),
                         Text(
-                          _phone ?? '-',
+                          _shopData?['owner_phone'] ?? '-',
                           style: const TextStyle(fontSize: 15, color: Colors.white70),
                         ),
                         const Spacer(),

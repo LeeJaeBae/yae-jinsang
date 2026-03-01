@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../services/supabase_service.dart';
@@ -181,97 +183,207 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
   }
 
-  static void _showPaymentInfo(BuildContext context) {
+  void _showPaymentInfo(BuildContext context) {
+    final depositorController = TextEditingController();
+    bool isSending = false;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A1A1A),
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const Text(
-              '계좌이체로 결제',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF252525),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Column(
-                children: [
-                  Text('입금 계좌', style: TextStyle(color: Colors.white38, fontSize: 13)),
-                  SizedBox(height: 8),
-                  Text(
-                    '토스뱅크 1000-3013-4144',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    '예금주: 이재원',
-                    style: TextStyle(color: Colors.white54, fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF9500).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                '⚠️ 입금자명을 업소명과 동일하게 해주세요.\n입금 확인 후 24시간 내 활성화됩니다.\n문의: hello@thebespoke.team',
-                style: TextStyle(color: Color(0xFFFFB84D), fontSize: 13),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  Clipboard.setData(const ClipboardData(text: '토스뱅크 1000-3013-4144'));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('✅ 계좌번호 복사됨'),
-                      behavior: SnackBarBehavior.floating,
-                      backgroundColor: const Color(0xFF34C759),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  );
-                  Navigator.pop(context);
-                },
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF3B30),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 24, right: 24, top: 24,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                child: const Text('계좌번호 복사', style: TextStyle(fontWeight: FontWeight.w600)),
               ),
-            ),
-            const SizedBox(height: 12),
-          ],
+              const Text(
+                '계좌이체로 결제',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF252525),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Column(
+                  children: [
+                    Text('입금 계좌', style: TextStyle(color: Colors.white38, fontSize: 13)),
+                    SizedBox(height: 8),
+                    Text(
+                      '토스뱅크 1000-3013-4144',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '예금주: 이재원',
+                      style: TextStyle(color: Colors.white54, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 계좌번호 복사
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(const ClipboardData(text: '토스뱅크 1000-3013-4144'));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('✅ 계좌번호 복사됨'),
+                        behavior: SnackBarBehavior.floating,
+                        backgroundColor: const Color(0xFF34C759),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('계좌번호 복사'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white54,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // 구분선
+              const Divider(color: Colors.white12),
+              const SizedBox(height: 16),
+
+              const Text(
+                '입금 후 아래 버튼을 눌러주세요',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+
+              // 입금자명 입력
+              TextField(
+                controller: depositorController,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: '입금자명 입력',
+                  hintStyle: const TextStyle(color: Colors.white30),
+                  filled: true,
+                  fillColor: const Color(0xFF252525),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 입금완료 버튼
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: isSending ? null : () async {
+                    setSheetState(() => isSending = true);
+                    await _requestPaymentConfirm(
+                      context,
+                      depositorController.text.trim(),
+                    );
+                    setSheetState(() => isSending = false);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B00),
+                    disabledBackgroundColor: const Color(0xFFFF6B00).withOpacity(0.4),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: isSending
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text(
+                          '💰 입금완료',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '입금 확인 후 빠르게 활성화됩니다',
+                style: TextStyle(color: Colors.white30, fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _requestPaymentConfirm(BuildContext context, String depositorName) async {
+    final fbUser = fb.FirebaseAuth.instance.currentUser;
+    if (fbUser == null) return;
+
+    final price = _isReferred ? 29000 : 49000;
+
+    try {
+      final res = await http.post(
+        Uri.parse('https://jinsang.thebespoke.team/api/payment-request'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'shop_id': fbUser.uid,
+          'amount': price,
+          'depositor_name': depositorName.isEmpty ? '미입력' : depositorName,
+          'plan': 'monthly',
+        }),
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              res.statusCode == 200
+                  ? '✅ 입금확인 요청 완료! 빠르게 처리해드릴게요'
+                  : '⚠️ 요청 실패, 다시 시도해주세요',
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: res.statusCode == 200
+                ? const Color(0xFF34C759)
+                : const Color(0xFFFF3B30),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('⚠️ 네트워크 오류, 다시 시도해주세요'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFFFF3B30),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 }

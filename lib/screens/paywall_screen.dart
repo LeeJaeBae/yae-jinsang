@@ -16,6 +16,8 @@ class PaywallScreen extends StatefulWidget {
 class _PaywallScreenState extends State<PaywallScreen> {
   bool _isReferred = false;
   bool _loaded = false;
+  final _promoController = TextEditingController();
+  bool _applyingPromo = false;
 
   @override
   void initState() {
@@ -133,6 +135,59 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 ),
 
                 const SizedBox(height: 24),
+
+                // 프로모 코드 입력
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A1A),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF34C759).withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text('🎁 구독 코드', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _promoController,
+                              textCapitalization: TextCapitalization.characters,
+                              style: const TextStyle(fontSize: 15, letterSpacing: 2),
+                              decoration: InputDecoration(
+                                hintText: '코드 입력',
+                                hintStyle: const TextStyle(color: Colors.white24),
+                                filled: true,
+                                fillColor: const Color(0xFF252525),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: _applyingPromo ? null : _applyPromoCode,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF34C759),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: _applyingPromo
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('적용', style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
 
                 // 결제 버튼
                 SizedBox(
@@ -344,6 +399,59 @@ class _PaywallScreenState extends State<PaywallScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _applyPromoCode() async {
+    final code = _promoController.text.trim();
+    if (code.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final shopId = prefs.getString('flutter.shop_id');
+    if (shopId == null) return;
+
+    setState(() => _applyingPromo = true);
+    try {
+      final result = await SupabaseService.applyPromo(code, shopId);
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        _promoController.clear();
+        final days = result['days_added'] ?? 14;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 ${days}일 무료 체험이 적용되었습니다!'),
+            backgroundColor: const Color(0xFF34C759),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+        // 구독 상태 갱신을 위해 앱 재시작
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ ${result['error'] ?? '코드 적용 실패'}'),
+            backgroundColor: const Color(0xFFFF3B30),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('⚠️ 오류가 발생했습니다'),
+            backgroundColor: const Color(0xFFFF3B30),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+    if (mounted) setState(() => _applyingPromo = false);
   }
 
   Future<void> _requestPaymentConfirm(BuildContext context, String depositorName) async {

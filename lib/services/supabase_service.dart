@@ -122,6 +122,18 @@ class SupabaseService {
     return response != null;
   }
 
+  /// 프로모 코드 적용
+  static Future<Map<String, dynamic>> applyPromo(String code, String shopId) async {
+    final response = await client.rpc('apply_promo', params: {
+      'p_code': code.trim().toUpperCase(),
+      'p_shop_id': shopId,
+    });
+    if (response is Map) {
+      return Map<String, dynamic>.from(response);
+    }
+    return {'success': false, 'error': '알 수 없는 오류'};
+  }
+
   /// 조회 로그 기록
   static Future<void> logLookup({
     required String shopId,

@@ -15,6 +15,8 @@ class _ReferralScreenState extends State<ReferralScreen> {
   String? _myCode;
   int _referralCount = 0;
   bool _loading = true;
+  final _promoController = TextEditingController();
+  bool _applyingPromo = false;
 
   String get _userId => fb.FirebaseAuth.instance.currentUser!.uid;
 
@@ -32,6 +34,57 @@ class _ReferralScreenState extends State<ReferralScreen> {
       _referralCount = count;
       _loading = false;
     });
+  }
+
+  @override
+  void dispose() {
+    _promoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _applyPromoCode() async {
+    final code = _promoController.text.trim();
+    if (code.isEmpty) return;
+
+    setState(() => _applyingPromo = true);
+    try {
+      final result = await SupabaseService.applyPromo(code, _userId);
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        _promoController.clear();
+        final days = result['days_added'] ?? 14;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 ${days}일 무료 체험이 적용되었습니다!'),
+            backgroundColor: const Color(0xFF34C759),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ ${result['error'] ?? '코드 적용 실패'}'),
+            backgroundColor: const Color(0xFFFF3B30),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('❌ 네트워크 오류. 다시 시도해주세요.'),
+          backgroundColor: const Color(0xFFFF3B30),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _applyingPromo = false);
+    }
   }
 
   void _copyCode() {
@@ -203,6 +256,64 @@ class _ReferralScreenState extends State<ReferralScreen> {
                         _benefitRow('🎉', '추천받은 상대', '첫 달 50% 할인 (24,500원)'),
                         const SizedBox(height: 12),
                         _benefitRow('♾️', '제한 없음', '10명 추천 = 10개월 무료!'),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 프로모 코드 입력
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A1A),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFFF6B00).withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('🎁 프로모 코드', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 4),
+                        const Text('무료 체험 코드가 있다면 입력하세요', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _promoController,
+                                textCapitalization: TextCapitalization.characters,
+                                style: const TextStyle(color: Colors.white, fontSize: 15, letterSpacing: 2),
+                                decoration: InputDecoration(
+                                  hintText: '코드 입력',
+                                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
+                                  filled: true,
+                                  fillColor: const Color(0xFF0D0D0D),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 48,
+                              child: FilledButton(
+                                onPressed: _applyingPromo ? null : _applyPromoCode,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFF6B00),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: _applyingPromo
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                    : const Text('적용', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),

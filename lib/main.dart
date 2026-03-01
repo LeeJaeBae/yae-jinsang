@@ -1342,7 +1342,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                           child: FilledButton(
                             onPressed: _searching ? null : _searchJinsang,
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF2A2A2A),
+                              backgroundColor: const Color(0xFFFF6B00),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                             child: _searching
@@ -1656,11 +1656,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   Widget _buildTutorialOverlay() {
     final steps = _coachSteps;
     if (_tutorialStep >= steps.length) {
-      Future.microtask(() => _finishHomeTutorial());
+      // build 중 setState 방지 — 다음 프레임에서 처리
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _finishHomeTutorial();
+      });
       return const SizedBox.shrink();
     }
     final step = steps[_tutorialStep];
     final rect = _getWidgetRect(step.key);
+
+    // rect이 null이면 (위젯이 아직 렌더링 안 됐거나 화면 밖) → 스킵
+    if (rect == null || rect.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          // 다음 스텝으로 넘기거나, 마지막이면 완료 처리
+          if (_tutorialStep < steps.length - 1) {
+            setState(() => _tutorialStep++);
+          } else {
+            _finishHomeTutorial();
+          }
+        }
+      });
+      return const SizedBox.shrink();
+    }
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1668,7 +1686,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
         if (_tutorialStep < steps.length - 1) {
           setState(() => _tutorialStep++);
         } else {
-          setState(() => _showHomeTutorial = false);
           _finishHomeTutorial();
         }
       },
@@ -1687,7 +1704,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           Positioned(
             left: 24,
             right: 24,
-            top: rect != null ? _tooltipTop(rect) : MediaQuery.of(context).size.height * 0.35,
+            top: _tooltipTop(rect),
             child: _buildTooltipCard(step),
           ),
         ],
